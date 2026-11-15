@@ -1,0 +1,158 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space);
+  min-height: 100%;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--space);
+}
+
+.spacer {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.mic {
+  flex: none;
+  width: 7rem;
+  height: 7rem;
+  border: 2px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 2.5rem;
+  cursor: pointer;
+}
+
+.mic:focus-visible,
+.submit:focus-visible,
+.input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.mic:disabled,
+.unavailable {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recording {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-bg);
+  animation: pulse 1.2s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--color-danger);
+  }
+  100% {
+    box-shadow: 0 0 0 1rem transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recording {
+    animation: none;
+  }
+}
+
+.hint,
+.counter,
+.interim {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.interim {
+  font-style: italic;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+  text-align: center;
+}
+
+.success {
+  margin: 0;
+  min-height: 1.25rem;
+  color: var(--color-success);
+}
+
+.lower {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space);
+  width: 100%;
+}
+
+.messages {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  width: 100%;
+  height: 4.5rem;
+  overflow-y: auto;
+}
+
+.bar {
+  margin-top: auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  min-height: 2.75rem;
+  max-height: 9.5rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  line-height: 1.4;
+  resize: none;
+}
+
+.submit {
+  flex: none;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

@@ -1,0 +1,107 @@
+.page {
+  box-sizing: border-box;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--space);
+  padding-bottom: 5rem;
+  overflow-x: hidden;
+}
+
+.title {
+  margin: 0 0 var(--space);
+  font-size: 1.25rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: var(--space);
+}
+
+.header .title {
+  flex: 1;
+  margin: 0;
+}
+
+.newButton {
+  display: block;
+  min-height: 2.75rem;
+  margin: var(--space) auto 0;
+  padding: 0.5rem 1.5rem;
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.back,
+.headerAction,
+.pagerButton {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  font: inherit;
+  font-size: 1.25rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.back:focus-visible,
+.headerAction:focus-visible,
+.newButton:focus-visible,
+.pagerButton:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.pagerButton:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+  opacity: 0.5;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: var(--space);
+  color: var(--color-text-muted);
+}
+
+/* Ringseite: volle Höhe; Ring-Bereich nimmt den freien Raum ein, „Neue Ablage“ sitzt unten. */
+.ringPage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 26rem;
+  padding: 0.5rem 0 var(--space);
+}
+
+.ringPage .title {
+  flex: none;
+}
+
+.ringArea {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  container-type: size;
+}
+
+.ringPage .pager {
+  flex: none;
+  margin-top: 0;
+}
+
+.ringPage .newButton {
+  flex: none;
+  margin-top: 0.5rem;
+}

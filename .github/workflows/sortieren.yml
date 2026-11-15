@@ -1,0 +1,59 @@
+# Wiederverwendbarer Workflow (SPEC §8.1): wird vom Daten-Repo aufgerufen; Logik und Skript kommen von `stable`.
+name: Sortieren
+
+on:
+  workflow_call:
+    inputs:
+      request-id:
+        type: string
+        required: true
+      code-repo:
+        type: string
+        default: Mc-Babex/secondbrain
+      code-ref:
+        type: string
+        default: stable
+    secrets:
+      ROUTINE_FIRE_URL:
+        required: false
+      ROUTINE_FIRE_TOKEN:
+        required: false
+
+jobs:
+  sortieren:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: sortieren
+      cancel-in-progress: false
+    steps:
+      - name: Daten-Repo auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Code-Repo auschecken
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.code-repo }}
+          ref: ${{ inputs.code-ref }}
+          path: .secondbrain-code
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/action
+            src/lib
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Git-Identität
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+      - name: Sortieren starten
+        env:
+          ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}
+          ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
+          REQUEST_ID: ${{ inputs.request-id }}
+        run: node .secondbrain-code/scripts/action/sortieren.ts

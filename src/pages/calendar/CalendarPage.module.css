@@ -1,0 +1,295 @@
+.page {
+  box-sizing: border-box;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--space);
+  padding-bottom: 5rem;
+}
+
+.header {
+  margin-bottom: 0.75rem;
+}
+
+.title {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.modes {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.control {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.control[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.hint {
+  margin: 0 0 0.5rem;
+  color: var(--color-text-muted);
+}
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.row {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.dayHead {
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.25rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.todayHead {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.axisNote {
+  align-self: center;
+  font-size: 0.6rem;
+  color: var(--color-text-muted);
+}
+
+.allDayCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scroller {
+  height: min(65vh, 38rem);
+  height: min(65dvh, 38rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-border);
+}
+
+.grid {
+  position: relative;
+  display: grid;
+  gap: 2px;
+}
+
+.axis {
+  position: relative;
+}
+
+.hourLabel {
+  position: absolute;
+  right: 0.25rem;
+  transform: translateY(-50%);
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+.dayColumn {
+  position: relative;
+  min-width: 0;
+  background-image: linear-gradient(to bottom, var(--color-border) 1px, transparent 1px);
+  background-size: 100% calc(100% / 24);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.holdMark {
+  position: absolute;
+  right: 0;
+  left: 0;
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  background: rgb(122 162 247 / 20%);
+  pointer-events: none;
+}
+
+.today {
+  background-color: rgb(122 162 247 / 8%);
+}
+
+.planning {
+  position: absolute;
+  right: 0;
+  left: 0;
+  border-top: 1px dashed var(--color-success);
+  border-bottom: 1px dashed var(--color-success);
+  pointer-events: none;
+}
+
+.pause {
+  position: absolute;
+  right: 0;
+  left: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--color-text-muted) 18%, transparent) 6px 8px
+  );
+  pointer-events: none;
+}
+
+.nowLine {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-danger);
+  pointer-events: none;
+}
+
+.event {
+  position: absolute;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.1rem 0.25rem;
+  border: 1px solid var(--color-accent);
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--color-accent) 28%, var(--color-surface));
+  color: var(--color-text);
+  font-size: 0.75rem;
+  line-height: 1.2;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.allDayCell .event {
+  position: static;
+}
+
+.eventTime {
+  color: color-mix(in srgb, var(--color-text) 80%, var(--color-accent));
+}
+
+.tile {
+  cursor: pointer;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.lifted {
+  z-index: 5;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 45%);
+  cursor: grabbing;
+  scale: 1.03;
+  touch-action: none;
+  transition: scale 0.12s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lifted {
+    scale: none;
+    transition: none;
+  }
+}
+
+.resizeHandle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: min(16px, 45%);
+  cursor: ns-resize;
+}
+
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  right: 25%;
+  bottom: 2px;
+  left: 25%;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+
+.dragBadge {
+  position: fixed;
+  z-index: 60;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--color-accent);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 2.75rem));
+}
+
+.toast {
+  position: fixed;
+  bottom: 4rem;
+  left: 50%;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  transform: translateX(-50%);
+}
+
+.toastButton {
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  color: var(--color-accent);
+}
+
+.tile:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 1px;
+}
+
+.linked {
+  border-left-width: 4px;
+  background: color-mix(in srgb, var(--color-accent) 42%, var(--color-surface));
+}
+
+.done {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.add {
+  font-size: 1.25rem;
+  font-weight: 600;
+}

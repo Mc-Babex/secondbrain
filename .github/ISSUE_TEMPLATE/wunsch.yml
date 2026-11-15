@@ -1,0 +1,22 @@
+name: Wunsch äußern
+description: Eine Idee oder Verbesserung vorschlagen.
+labels: ['wunsch']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues sind öffentlich sichtbar. Bitte keine persönlichen Daten, keine Tokens und keine Screenshots mit privaten Inhalten.
+  - type: textarea
+    id: wunsch
+    attributes:
+      label: Was wünschst du dir?
+    validations:
+      required: true
+  - type: textarea
+    id: wofuer
+    attributes:
+      label: Wofür brauchst du das?
+  - type: input
+    id: version
+    attributes:
+      label: App-Version

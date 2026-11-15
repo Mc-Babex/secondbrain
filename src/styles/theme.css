@@ -1,0 +1,18 @@
+:root {
+  color-scheme: dark;
+  --color-bg: #0f1115;
+  --color-surface: #1a1d24;
+  --color-text: #e6e8ee;
+  --color-text-muted: #9aa1b2;
+  --color-accent: #7aa2f7;
+  --color-danger: #f7768e;
+  --color-success: #9ece6a;
+  --color-border: #2c313c;
+  --content-max-width: 720px;
+  /* Dauer des Seitenwechsels (Leiste und Sichtbarkeit der abgehenden Seite, siehe App.module.css/PageSlot.module.css). */
+  --page-transition: 300ms;
+  --space: 1rem;
+  --safe-left: max(var(--space), env(safe-area-inset-left));
+  --safe-right: max(var(--space), env(safe-area-inset-right));
+  --checkbox-image: url('data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Crect x=%270.75%27 y=%270.75%27 width=%2722.5%27 height=%2722.5%27 rx=%274%27 fill=%27none%27 stroke=%27%237aa2f7%27 stroke-width=%271.5%27/%3E%3C/svg%3E');
+}

@@ -1,0 +1,26 @@
+.dots {
+  display: flex;
+  justify-content: center;
+  padding: 0.125rem var(--safe-right) calc(0.125rem + env(safe-area-inset-bottom)) var(--safe-left);
+}
+
+.dot {
+  position: relative;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dot::after {
+  content: '';
+  position: absolute;
+  inset: 1.0625rem;
+  border-radius: 50%;
+  background: var(--color-border);
+}
+
+.dot[aria-current='page']::after {
+  background: var(--color-accent);
+}

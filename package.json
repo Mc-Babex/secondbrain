@@ -1,0 +1,52 @@
+{
+  "name": "secondbrain",
+  "private": true,
+  "version": "0.8.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && tsx scripts/build/checkVersionJson.ts",
+    "preview": "vite preview",
+    "lint": "eslint . && tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.scripts.json",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "lauf:pruefen": "tsx scripts/lauf/pruefen.ts",
+    "lauf:planen": "tsx scripts/lauf/planen.ts",
+    "lauf:start": "tsx scripts/lauf/start.ts",
+    "lauf:anwenden": "tsx scripts/lauf/anwenden.ts",
+    "lauf:abschluss": "tsx scripts/lauf/abschluss.ts",
+    "lauf:testdaten": "tsx scripts/lauf/testdaten.ts",
+    "lauf:vergleich": "tsx scripts/lauf/vergleich.ts",
+    "splash": "tsx scripts/splash/erzeugen.ts"
+  },
+  "dependencies": {
+    "hyphen": "1.14.1",
+    "idb": "^8.0.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^26.6.5",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.1.2",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "fake-indexeddb": "^6.2.6",
+    "globals": "^17.13.0",
+    "jsdom": "^30.1.3",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vite": "^8.3.4",
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.0.5"
+  }
+}

@@ -1,0 +1,42 @@
+name: Fehler melden
+description: Etwas funktioniert nicht wie erwartet.
+labels: ['fehler']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues sind öffentlich sichtbar. Bitte keine persönlichen Daten, keine Tokens und keine Screenshots mit privaten Inhalten.
+  - type: textarea
+    id: was
+    attributes:
+      label: Was ist passiert?
+    validations:
+      required: true
+  - type: textarea
+    id: erwartet
+    attributes:
+      label: Was hast du erwartet?
+  - type: textarea
+    id: schritte
+    attributes:
+      label: Schritte zum Nachstellen
+  - type: input
+    id: version
+    attributes:
+      label: App-Version
+  - type: input
+    id: build
+    attributes:
+      label: Build
+  - type: input
+    id: geraet
+    attributes:
+      label: Gerät und Browser
+  - type: input
+    id: ios
+    attributes:
+      label: iOS-Version
+  - type: input
+    id: anzeigemodus
+    attributes:
+      label: Anzeigemodus (Browser oder installiert)

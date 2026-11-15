@@ -1,0 +1,16 @@
+.slot {
+  box-sizing: border-box;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 var(--safe-right) 0 var(--safe-left);
+  touch-action: pan-y;
+}
+
+/*
+ * Nicht aktive Seiten werden nicht gezeichnet. Während Wischgeste und Übergang überschreibt
+ * lib/pageLayout.ts das per Inline-Stil (visibility: visible); danach gilt wieder diese Regel.
+ */
+.slot:not([data-active]) {
+  visibility: hidden;
+}

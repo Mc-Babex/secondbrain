@@ -1,0 +1,34 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  bottom: var(--keyboard-inset, 0px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(var(--space), env(safe-area-inset-top)) var(--safe-right)
+    max(var(--space), env(safe-area-inset-bottom)) var(--safe-left);
+  background: rgb(0 0 0 / 60%);
+}
+
+.panel {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 30rem;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: var(--space);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.title {
+  margin: 0 0 var(--space);
+  font-size: 1.125rem;
+}
+
+.panel:focus:not(:focus-visible) {
+  outline: none;
+}

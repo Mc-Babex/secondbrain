@@ -1,0 +1,15 @@
+.slot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+}
+
+.slot legend {
+  padding: 0 0.25rem;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}

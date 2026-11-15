@@ -1,0 +1,68 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+}
+
+.app[hidden] {
+  display: none;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(0.5rem + env(safe-area-inset-top)) var(--safe-right) 0 var(--safe-left);
+}
+
+.gear {
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.main {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* Nie scrollbar: Fokus/scrollIntoView dürfen die Seiten nicht seitlich verschieben (Aufgabe 74). */
+  overflow: clip;
+}
+
+/*
+ * Die Seiten liegen absolut übereinander (siehe lib/pageLayout.ts). In Ruhe hat keine Seite einen transform;
+ * nur während Wischgeste und Übergang bewegen sich die beteiligten Seiten einzeln (nie eine breite Leiste).
+ */
+.track {
+  position: relative;
+  height: 100%;
+}
+
+.track > * {
+  position: absolute;
+  inset: 0;
+}
+
+.track[data-dragging] > *,
+.track[data-moving] > * {
+  will-change: transform;
+}
+
+.track[data-moving] > * {
+  transition: transform var(--page-transition) cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.track[data-dragging] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.track[data-reduced] > * {
+  transition: none;
+}

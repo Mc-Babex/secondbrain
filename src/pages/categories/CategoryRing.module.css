@@ -1,0 +1,88 @@
+.stage {
+  position: relative;
+  width: 100%;
+  max-width: 34rem;
+  aspect-ratio: 1 / 1.2;
+  margin: 0 auto;
+}
+
+/*
+ * Bühne aus freier Breite und Höhe des Ring-Bereichs (Container siehe CategoriesPage):
+ * nie breiter als hoch, höchstens 1,3-mal so hoch wie breit.
+ */
+@supports (width: 1cqi) {
+  .stage {
+    --stage-width: min(100cqi, 100cqb, 34rem);
+    width: var(--stage-width);
+    height: min(100cqb, calc(var(--stage-width) * 1.3));
+    aspect-ratio: auto;
+  }
+}
+
+.figure {
+  position: absolute;
+  pointer-events: none;
+}
+
+.tile {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.25rem;
+  overflow: hidden;
+  font: inherit;
+  line-height: 1.15;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: border-color 150ms ease-out;
+}
+
+.tile:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.tile[data-selected] {
+  border: 2px solid var(--color-accent);
+}
+
+.name {
+  display: block;
+  max-width: 100%;
+  text-align: center;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+/* Trennstellen stehen als weiche Trennstriche im Text: überall gleich und korrekt. */
+.name[data-hyphenated] {
+  hyphens: manual;
+  -webkit-hyphens: manual;
+}
+
+.icon {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  color: var(--color-accent);
+}
+
+.count {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile {
+    transition: none;
+  }
+}
