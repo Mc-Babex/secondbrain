@@ -30,5 +30,5 @@ Aufgaben ab 76 liegen in `docs/tasks/`; frühere Aufgaben sind nicht öffentlich
 | 84 Wiederverwendbarer Workflow, Vorlage, CI | ✅ |
 | 85 Feedback senden + Issue-Vorlagen | ✅ |
 | 86 Doku für Tester | ✅ |
-| 87 Öffentliches Repo: Bereinigung und Prüfung | 🟨 Repo, Vorlage und Hosting eingerichtet; Umzug läuft |
+| 87 Öffentliches Repo: Bereinigung und Prüfung | ✅ |
 | 88 Abnahme mit zweitem Testkonto | ⬜ |
