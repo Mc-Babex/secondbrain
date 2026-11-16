@@ -145,12 +145,14 @@ Zum Schluss eine kurze Zusammenfassung: einsortiert, übersprungen (mit Grund), 
    „Vielleicht“, „mal“, „irgendwann“ ⇒ nicht wichtig. Fokus plant **nichts** ein. Nennt der Text eine Frist
    („bis Freitag“, „Abgabe am 30.10.“), zusätzlich `dueDate` (`YYYY-MM-DD`).
 6. **Dauer:** Nennt der Text eine Dauer („2 Stunden“, „30 Minuten“, „eine Stunde“, „ca. 3 Stunden“), genau diese.
+   **Immer `null`** (auch wenn du schätzen könntest) – das Skript setzt dann Standardwerte:
+   - bei Terminen ohne Dauerangabe,
+   - bei Einträgen mit Datum **ohne** Uhrzeit **und** `plan: true` (ergibt einen 90-Min.-Block an dem Tag),
+   - bei Einträgen ohne Dauerangabe, die du nicht einschätzen kannst.
    Sonst bei Aufgaben schätzen, in ganzen Minuten, auch unter 15: **2** für „kurz Bescheid geben“, „Link schicken“;
    **15** für Anruf, Mail schreiben/beantworten, Rechnung bezahlen/überweisen, Termin vereinbaren, kurze Nachricht;
    30 für Brief/kurzes Formular; Formular 30–60, im Zweifel 30; größere Arbeit 120+. Angaben des Nutzers gehen
    immer vor. Wann eingeplant wird, entscheidet das Skript (der Kalenderblock ist mindestens 15 Min.).
-   Bei Terminen ohne Angabe, bei Datum ohne Uhrzeit und bei Einträgen ohne Dauerangabe, die du nicht
-   einschätzen kannst, `null` lassen – das Skript setzt Standardwerte.
 7. **Zeitangaben** (`when`) relativ zur Zeit aus Schritt 1 auflösen:
    - „heute“, „morgen“, „übermorgen“; Wochentag („Freitag“) = nächster solcher Tag, **heute eingeschlossen**,
      solange der Zeitpunkt nicht vorbei ist; „am 30.10.“ = dieses Jahr, sonst nächstes.
