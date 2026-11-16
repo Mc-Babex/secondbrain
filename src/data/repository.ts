@@ -1,4 +1,5 @@
 import { categoryIdFromName } from '../lib/categoryId'
+import { berlinDate, projectSteps } from '../lib/gtd'
 import { findSameArticle } from '../lib/shopping'
 import { appointmentEnd, hasEnded, selectPastAppointments } from '../lib/pastAppointments'
 import { nowIso, toIso } from '../lib/time'
@@ -20,20 +21,29 @@ import {
   isInboxEntry,
   isItem,
   isObj,
+  isProject,
   isSuggestion,
   normalizeInboxEntry,
   normalizeItem,
+  normalizeProject,
+  isStepSeries,
   normalizeSuggestion,
   parseLastRun,
   type Category,
+  type GtdStatus,
   type InboxEntry,
   type InboxSource,
   type Item,
   type ItemType,
   type LastRun,
+  type Project,
   type Settings,
   type Suggestion,
+  type Waiting,
 } from './types'
+
+/** Formatmarke für Dateien, die eine App ab Phase 9 geschrieben hat (SPEC §3.3). */
+const FORMAT_V = 2
 
 // --- Änderungs-Ereignis ----------------------------------------------------
 
@@ -76,6 +86,7 @@ const LAST_RUN_PATH = 'runs/last.json'
 const inboxPath = (id: string): string => `inbox/${id}.json`
 const itemPath = (id: string): string => `items/${id}.json`
 const suggestionPath = (id: string): string => `suggestions/${id}.json`
+const projectPath = (id: string): string => `projects/${id}.json`
 
 async function listValid<T>(prefix: string, guard: (v: unknown) => v is T): Promise<T[]> {
   const files = await listFiles(prefix)
@@ -88,6 +99,48 @@ async function listValid<T>(prefix: string, guard: (v: unknown) => v is T): Prom
   return valid
 }
 
+/** Neue Item-Felder, deren ungültiger Rohwert beim Schreiben erhalten bleibt (`v` setzt jede Schreibaktion). */
+const GTD_RAW_KEYS = [
+  'gtd',
+  'dueDate',
+  'waiting',
+  'projectId',
+  'projectOrder',
+  'seriesId',
+  'seriesNumber',
+  'archivedWithProject',
+] as const
+
+const sameValue = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
+
+/**
+ * Die normalisierte Sicht behandelt ungültige Werte neuer Felder als „fehlt“. Beim Schreiben bleibt
+ * der Rohwert eines solchen Feldes trotzdem erhalten, solange die Aktion das Feld nicht ändert und es
+ * nicht in `explicit` (ausdrücklich gesetzte Felder) steht. Gilt auch für ein nur abgeleitetes Feld
+ * (Migration): ein vorhandener ungültiger Rohwert wird nicht überschrieben.
+ */
+function keepInvalidRaw(
+  raw: unknown,
+  before: Item,
+  after: Item,
+  explicit: readonly string[] = [],
+): Item {
+  if (!isObj(raw)) return after
+  const kept: Record<string, unknown> = {}
+  for (const key of GTD_RAW_KEYS) {
+    const rawValue = raw[key]
+    if (rawValue === undefined || explicit.includes(key)) continue
+    if (sameValue(rawValue, before[key]) || !sameValue(before[key], after[key])) continue
+    kept[key] = rawValue
+  }
+  return { ...after, ...kept }
+}
+
+/** Wie `keepInvalidRaw`, liest den Rohwert aber aus dem lokalen Speicher (für Sammelschreibungen). */
+async function withRaw(before: Item, after: Item, explicit?: readonly string[]): Promise<Item> {
+  return keepInvalidRaw((await getFile(itemPath(before.id)))?.data, before, after, explicit)
+}
+
 const byId = <T extends { id: string }>(a: T, b: T): number =>
   a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 
@@ -97,6 +150,10 @@ export async function listInbox(): Promise<InboxEntry[]> {
 
 export async function listItems(): Promise<Item[]> {
   return (await listValid('items/', isItem)).map(normalizeItem).sort(byId)
+}
+
+export async function listProjects(): Promise<Project[]> {
+  return (await listValid('projects/', isProject)).map(normalizeProject).sort(byId)
 }
 
 export async function listSuggestions(): Promise<Suggestion[]> {
@@ -113,6 +170,11 @@ async function readSuggestion(id: string): Promise<Suggestion> {
   const data = (await getFile(suggestionPath(id)))?.data
   if (!isSuggestion(data)) throw new Error(`Vorschlag ${id} nicht gefunden`)
   return normalizeSuggestion(data)
+}
+
+function parseProject(current: unknown, id: string): Project {
+  if (!isProject(current)) throw new Error(`Projekt ${id} nicht gefunden`)
+  return normalizeProject(current)
 }
 
 function parseItem(current: unknown, id: string): Item {
@@ -241,15 +303,24 @@ export async function deleteCategory(id: string, targetId: string): Promise<void
   const writes: LocalWrite[] = []
   for (const item of await listItems()) {
     if (item.categoryId !== id && item.originalCategoryId !== id) continue
+    const moved: Item = {
+      ...item,
+      categoryId: item.categoryId === id ? targetId : item.categoryId,
+      originalCategoryId: item.originalCategoryId === id ? targetId : item.originalCategoryId,
+      updatedAt: now,
+    }
     writes.push({
       path: itemPath(item.id),
       op: 'put',
-      data: {
-        ...item,
-        categoryId: item.categoryId === id ? targetId : item.categoryId,
-        originalCategoryId: item.originalCategoryId === id ? targetId : item.originalCategoryId,
-        updatedAt: now,
-      },
+      data: { ...(await withRaw(item, moved)), v: FORMAT_V },
+    })
+  }
+  for (const project of await listProjects()) {
+    if (project.categoryId !== id) continue
+    writes.push({
+      path: projectPath(project.id),
+      op: 'put',
+      data: { ...project, categoryId: targetId, updatedAt: now, v: FORMAT_V },
     })
   }
   writes.push({
@@ -362,7 +433,9 @@ function buildItem(partial: NewItem): Item {
     createdAt: now,
     updatedAt: now,
     completedAt: null,
+    ...(partial.type === 'aufgabe' ? { gtd: 'naechster-schritt' as const } : {}),
     ...partial,
+    v: FORMAT_V,
   }
 }
 
@@ -373,14 +446,25 @@ export async function createItem(partial: NewItem): Promise<Item> {
   return item
 }
 
-async function modifyItem(id: string, change: (item: Item) => Item): Promise<Item> {
-  const data = await updateFileLocal(itemPath(id), (current) => change(parseItem(current, id)))
+async function modifyItem(
+  id: string,
+  change: (item: Item) => Item,
+  explicit?: readonly string[],
+): Promise<Item> {
+  const data = await updateFileLocal(itemPath(id), (current) => {
+    const before = parseItem(current, id)
+    return { ...keepInvalidRaw(current, before, change(before), explicit), v: FORMAT_V }
+  })
   notifyChange()
   return data as Item
 }
 
 export function updateItem(id: string, patch: Partial<Omit<Item, 'id'>>): Promise<Item> {
-  return modifyItem(id, (current) => ({ ...current, ...patch, id, updatedAt: nowIso() }))
+  return modifyItem(
+    id,
+    (current) => ({ ...current, ...patch, id, updatedAt: nowIso() }),
+    Object.keys(patch),
+  )
 }
 
 export async function deleteItem(id: string): Promise<void> {
@@ -408,26 +492,30 @@ export async function fileInboxEntry(
   return item
 }
 
+/** Wie ✓ Erledigt: Eintrag ins Archiv, ursprüngliche Ablage merken. */
+function archivedItem(current: Item, archiveId: string | undefined, now: string): Item {
+  return {
+    ...current,
+    status: 'erledigt',
+    completedAt: now,
+    originalCategoryId:
+      archiveId !== undefined && current.categoryId === archiveId
+        ? current.originalCategoryId
+        : current.categoryId,
+    categoryId: archiveId ?? 'erledigt',
+    updatedAt: now,
+  }
+}
+
 export async function completeItem(
   id: string,
   options: { clearSchedule?: boolean } = {},
 ): Promise<Item> {
   const archive = (await getCategories()).find((c) => c.kind === 'archiv')
-  return modifyItem(id, (current) => {
-    const now = nowIso()
-    return {
-      ...current,
-      status: 'erledigt',
-      completedAt: now,
-      originalCategoryId:
-        archive && current.categoryId === archive.id
-          ? current.originalCategoryId
-          : current.categoryId,
-      categoryId: archive?.id ?? 'erledigt',
-      ...(options.clearSchedule ? { schedule: null } : {}),
-      updatedAt: now,
-    }
-  })
+  return modifyItem(id, (current) => ({
+    ...archivedItem(current, archive?.id, nowIso()),
+    ...(options.clearSchedule ? { schedule: null } : {}),
+  }))
 }
 
 /** Steuerung: bricht `updateFileLocal` ab (nichts wird geschrieben), wenn der Eintrag inzwischen nicht mehr fällig ist. */
@@ -449,7 +537,7 @@ export async function archivePastAppointments(now: Date = new Date()): Promise<n
         const current = parseItem(raw, id)
         const end = appointmentEnd(current)
         if (!end || !selectPastAppointments([current], now).length) throw new NotDue()
-        return {
+        const archived: Item = {
           ...current,
           status: 'erledigt',
           completedAt: toIso(end),
@@ -460,6 +548,7 @@ export async function archivePastAppointments(now: Date = new Date()): Promise<n
           categoryId: archive?.id ?? 'erledigt',
           updatedAt: nowIso(),
         }
+        return { ...keepInvalidRaw(raw, current, archived), v: FORMAT_V }
       })
       moved += 1
     } catch (error) {
@@ -470,26 +559,330 @@ export async function archivePastAppointments(now: Date = new Date()): Promise<n
   return moved
 }
 
+/** Gegenstück zu `archivedItem`: zurück in die ursprüngliche Ablage (sonst Privat), wieder offen. */
+function restoredItem(current: Item, categories: readonly Category[], now: string): Item {
+  // Ein vergangener Termin verliert sein `schedule` (bleibt in Google), sonst würde er sofort
+  // wieder verschoben.
+  const clearSchedule = hasEnded(current, new Date())
+  const target =
+    categories.find((c) => c.id === current.originalCategoryId && c.kind !== 'archiv') ??
+    categories.find((c) => c.id === 'privat' && c.kind === 'normal') ??
+    categories.find((c) => c.kind === 'normal')
+  const restored: Item = {
+    ...current,
+    status: 'offen',
+    completedAt: null,
+    categoryId: target?.id ?? current.originalCategoryId ?? current.categoryId,
+    originalCategoryId: null,
+    ...(clearSchedule ? { schedule: null } : {}),
+    updatedAt: now,
+  }
+  delete restored.archivedWithProject
+  return restored
+}
+
+/**
+ * Stellt einen Eintrag wieder her. Gehört er als Schritt zu einem abgeschlossenen Projekt, wird
+ * auch das Projekt wieder aktiv (SPEC §6.4 Erledigt).
+ */
 export async function restoreItem(id: string): Promise<Item> {
   const categories = await getCategories()
-  return modifyItem(id, (current) => {
-    // Ein vergangener Termin verliert sein `schedule` (bleibt in Google), sonst würde er sofort
-    // wieder verschoben.
-    const clearSchedule = hasEnded(current, new Date())
-    const target =
-      categories.find((c) => c.id === current.originalCategoryId && c.kind !== 'archiv') ??
-      categories.find((c) => c.id === 'privat' && c.kind === 'normal') ??
-      categories.find((c) => c.kind === 'normal')
-    return {
-      ...current,
-      status: 'offen',
-      completedAt: null,
-      categoryId: target?.id ?? current.originalCategoryId ?? current.categoryId,
-      originalCategoryId: null,
-      ...(clearSchedule ? { schedule: null } : {}),
-      updatedAt: nowIso(),
-    }
+  const stored = parseItem((await getFile(itemPath(id)))?.data, id)
+  const project =
+    typeof stored.projectId === 'string'
+      ? (await listProjects()).find((p) => p.id === stored.projectId && p.status === 'erledigt')
+      : undefined
+  if (!project) {
+    return modifyItem(id, (current) => restoredItem(current, categories, nowIso()), [
+      'archivedWithProject',
+    ])
+  }
+  const now = nowIso()
+  const item: Item = {
+    ...(await withRaw(stored, restoredItem(stored, categories, now), ['archivedWithProject'])),
+    v: FORMAT_V,
+  }
+  await commitLocal([
+    { path: itemPath(id), op: 'put', data: item },
+    {
+      path: projectPath(project.id),
+      op: 'put',
+      data: { ...project, status: 'aktiv', completedAt: null, updatedAt: now, v: FORMAT_V },
+    },
+  ])
+  notifyChange()
+  return item
+}
+
+// --- GTD-Status ------------------------------------------------------------
+
+/**
+ * Setzt den GTD-Status einer Aufgabe. „warten“ ohne Angabe: `since` = heute, `person` = "" (eine
+ * vorhandene Angabe bleibt); jeder andere Status setzt `waiting` auf `null`.
+ */
+export function setGtdStatus(
+  id: string,
+  gtd: GtdStatus,
+  waiting?: Partial<Waiting>,
+): Promise<Item> {
+  return modifyItem(
+    id,
+    (current) => {
+      if (current.type !== 'aufgabe') throw new Error('Nur Aufgaben haben einen Status.')
+      if (gtd !== 'warten') return { ...current, gtd, waiting: null, updatedAt: nowIso() }
+      const base = current.gtd === 'warten' ? current.waiting : null
+      return {
+        ...current,
+        gtd,
+        waiting: {
+          ...base,
+          person: waiting?.person ?? base?.person ?? '',
+          since: waiting?.since ?? base?.since ?? berlinDate(new Date()),
+          followUpOn:
+            waiting?.followUpOn !== undefined ? waiting.followUpOn : (base?.followUpOn ?? null),
+        },
+        updatedAt: nowIso(),
+      }
+    },
+    ['gtd', 'waiting'],
+  )
+}
+
+/** „Antwort erhalten“: erledigen (archivieren) oder zum nächsten Schritt machen. */
+export function answerReceived(
+  id: string,
+  outcome: 'erledigt' | 'naechster-schritt',
+): Promise<Item> {
+  return outcome === 'erledigt' ? completeItem(id) : setGtdStatus(id, 'naechster-schritt')
+}
+
+/** „Aktivieren“ einer Irgendwann-Aufgabe. */
+export function activateItem(id: string): Promise<Item> {
+  return setGtdStatus(id, 'naechster-schritt')
+}
+
+// --- Projekte --------------------------------------------------------------
+
+export interface NewProject {
+  title: string
+  categoryId: string
+  notes?: string
+}
+
+export async function createProject(fields: NewProject): Promise<Project> {
+  const title = fields.title.trim()
+  if (title === '') throw new Error('Der Titel darf nicht leer sein.')
+  const category = (await getCategories()).find((c) => c.id === fields.categoryId)
+  if (category?.kind !== 'normal') throw new Error('Ein Projekt gehört in eine normale Ablage.')
+  const now = nowIso()
+  const project: Project = {
+    id: newId(),
+    title,
+    notes: fields.notes ?? '',
+    categoryId: category.id,
+    status: 'aktiv',
+    series: [],
+    createdAt: now,
+    updatedAt: now,
+    completedAt: null,
+    v: FORMAT_V,
+  }
+  await putFileLocal(projectPath(project.id), project)
+  notifyChange()
+  return project
+}
+
+export async function updateProject(
+  id: string,
+  patch: Partial<Pick<Project, 'title' | 'notes' | 'categoryId' | 'series'>>,
+): Promise<Project> {
+  if (patch.title !== undefined && patch.title.trim() === '') {
+    throw new Error('Der Titel darf nicht leer sein.')
+  }
+  const project = parseProject((await getFile(projectPath(id)))?.data, id)
+  const moves = patch.categoryId !== undefined && patch.categoryId !== project.categoryId
+  if (moves) {
+    const target = (await getCategories()).find((c) => c.id === patch.categoryId)
+    if (target?.kind !== 'normal') throw new Error('Ein Projekt gehört in eine normale Ablage.')
+  }
+  const now = nowIso()
+  const updated: Project = {
+    ...project,
+    ...patch,
+    ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
+    updatedAt: now,
+    v: FORMAT_V,
+  }
+  if (!moves) {
+    const data = await updateFileLocal(projectPath(id), (current) => ({
+      ...parseProject(current, id),
+      ...patch,
+      ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
+      updatedAt: now,
+      v: FORMAT_V,
+    }))
+    notifyChange()
+    return data as Project
+  }
+  // Neue Ablage: offene Schritte wandern mit, bei erledigten folgt `originalCategoryId`.
+  const writes: LocalWrite[] = []
+  for (const step of projectSteps(id, await listItems())) {
+    const moved: Item =
+      step.status === 'offen'
+        ? { ...step, categoryId: updated.categoryId, updatedAt: now }
+        : step.originalCategoryId === project.categoryId
+          ? { ...step, originalCategoryId: updated.categoryId, updatedAt: now }
+          : step
+    if (moved === step) continue
+    writes.push({
+      path: itemPath(step.id),
+      op: 'put',
+      data: { ...(await withRaw(step, moved)), v: FORMAT_V },
+    })
+  }
+  await commitLocal([...writes, { path: projectPath(id), op: 'put', data: updated }])
+  notifyChange()
+  return updated
+}
+
+/** Löscht ein Projekt, aber nur ohne Schritte (auch ohne erledigte); sonst erst abschließen. */
+export async function deleteProject(id: string): Promise<void> {
+  if ((await listItems()).some((i) => i.projectId === id)) {
+    throw new Error('Das Projekt hat noch Schritte. Bitte zuerst abschließen.')
+  }
+  await deleteFileLocal(projectPath(id))
+  notifyChange()
+}
+
+/** Schließt ein Projekt ab: offene Schritte werden archiviert (`archivedWithProject`), Serien beendet. */
+export async function completeProject(id: string): Promise<Project> {
+  const project = parseProject((await getFile(projectPath(id)))?.data, id)
+  if (project.status === 'erledigt') return project
+  const archive = (await getCategories()).find((c) => c.kind === 'archiv')
+  const now = nowIso()
+  const writes: LocalWrite[] = []
+  for (const step of projectSteps(id, await listItems())) {
+    if (step.status !== 'offen') continue
+    const archived: Item = { ...archivedItem(step, archive?.id, now), archivedWithProject: true }
+    writes.push({
+      path: itemPath(step.id),
+      op: 'put',
+      data: { ...(await withRaw(step, archived, ['archivedWithProject'])), v: FORMAT_V },
+    })
+  }
+  const done: Project = {
+    ...project,
+    status: 'erledigt',
+    completedAt: now,
+    series: project.series.map((s) => (isStepSeries(s) ? { ...s, state: 'beendet' as const } : s)),
+    updatedAt: now,
+    v: FORMAT_V,
+  }
+  await commitLocal([...writes, { path: projectPath(id), op: 'put', data: done }])
+  notifyChange()
+  return done
+}
+
+/** Stellt ein abgeschlossenes Projekt samt der mit ihm archivierten Schritte wieder her. */
+export async function restoreProject(id: string): Promise<Project> {
+  const project = parseProject((await getFile(projectPath(id)))?.data, id)
+  if (project.status === 'aktiv') return project
+  const categories = await getCategories()
+  const now = nowIso()
+  const writes: LocalWrite[] = []
+  for (const step of projectSteps(id, await listItems())) {
+    if (step.status !== 'erledigt' || step.archivedWithProject !== true) continue
+    const restored = restoredItem(step, categories, now)
+    writes.push({
+      path: itemPath(step.id),
+      op: 'put',
+      data: { ...(await withRaw(step, restored, ['archivedWithProject'])), v: FORMAT_V },
+    })
+  }
+  const active: Project = {
+    ...project,
+    status: 'aktiv',
+    completedAt: null,
+    updatedAt: now,
+    v: FORMAT_V,
+  }
+  await commitLocal([...writes, { path: projectPath(id), op: 'put', data: active }])
+  notifyChange()
+  return active
+}
+
+/** Hängt einen Schritt hinten an (`projectOrder` = größtes + 1), Status „Nächster Schritt“. */
+export async function addProjectStep(
+  projectId: string,
+  fields: { title: string; durationMin?: number | null; notes?: string },
+): Promise<Item> {
+  const title = fields.title.trim()
+  if (title === '') throw new Error('Der Titel darf nicht leer sein.')
+  const project = parseProject((await getFile(projectPath(projectId)))?.data, projectId)
+  const steps = projectSteps(projectId, await listItems())
+  const order = steps.reduce((max, s) => Math.max(max, s.projectOrder ?? 0), 0) + 1
+  return createItem({
+    type: 'aufgabe',
+    title,
+    notes: fields.notes ?? '',
+    durationMin: fields.durationMin ?? null,
+    categoryId: project.categoryId,
+    gtd: 'naechster-schritt',
+    projectId,
+    projectOrder: order,
   })
+}
+
+/**
+ * Verschiebt einen offenen Schritt um eine Stelle (↑/↓ unter den offenen Schritten). Meist werden
+ * nur die `projectOrder`-Werte der beiden Nachbarn getauscht; sind die Werte aller Schritte (auch der
+ * erledigten) nicht eindeutig, werden alle Schritte neu nummeriert – es werden nur tatsächlich
+ * geänderte Dateien geschrieben.
+ */
+export async function moveProjectStep(id: string, direction: 'up' | 'down'): Promise<void> {
+  const step = parseItem((await getFile(itemPath(id)))?.data, id)
+  if (typeof step.projectId !== 'string') throw new Error('Der Eintrag gehört zu keinem Projekt.')
+  const all = projectSteps(step.projectId, await listItems())
+  const open = all.filter((s) => s.status === 'offen')
+  const from = open.findIndex((s) => s.id === id)
+  const to = direction === 'up' ? from - 1 : from + 1
+  if (from < 0 || to < 0 || to >= open.length) return
+  const [a, b] = [open[from], open[to]]
+  const orders = new Map<string, number>()
+  const unique = new Set(all.map((s) => s.projectOrder))
+  if (
+    a.projectOrder !== undefined &&
+    b.projectOrder !== undefined &&
+    !unique.has(undefined) &&
+    unique.size === all.length
+  ) {
+    orders.set(a.id, b.projectOrder)
+    orders.set(b.id, a.projectOrder)
+  } else {
+    // Erledigte Schritte behalten ihren Platz in der Reihenfolge, nur die offenen tauschen.
+    const reorderedOpen = [...open]
+    reorderedOpen[from] = b
+    reorderedOpen[to] = a
+    let next = 0
+    const reordered = all.map((s) => (s.status === 'offen' ? reorderedOpen[next++] : s))
+    reordered.forEach((s, index) => {
+      if (s.projectOrder !== index + 1) orders.set(s.id, index + 1)
+    })
+  }
+  const now = nowIso()
+  const writes: LocalWrite[] = []
+  for (const s of all) {
+    const order = orders.get(s.id)
+    if (order === undefined) continue
+    const moved: Item = { ...s, projectOrder: order, updatedAt: now }
+    writes.push({
+      path: itemPath(s.id),
+      op: 'put',
+      data: { ...(await withRaw(s, moved, ['projectOrder'])), v: FORMAT_V },
+    })
+  }
+  await commitLocal(writes)
+  notifyChange()
 }
 
 // --- Einkaufsliste ---------------------------------------------------------

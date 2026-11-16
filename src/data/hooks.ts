@@ -7,10 +7,11 @@ import {
   getSettings,
   listInbox,
   listItems,
+  listProjects,
   listSuggestions,
   subscribe,
 } from './repository'
-import type { Category, InboxEntry, Item, LastRun, Settings, Suggestion } from './types'
+import type { Category, InboxEntry, Item, LastRun, Project, Settings, Suggestion } from './types'
 
 const MAX_RETRIES = 3
 const RETRY_MS = 1000
@@ -65,6 +66,7 @@ function useLoaded<T>(load: () => Promise<T>, initial: T): T {
 
 const EMPTY_INBOX: InboxEntry[] = []
 const EMPTY_ITEMS: Item[] = []
+const EMPTY_PROJECTS: Project[] = []
 const EMPTY_SUGGESTIONS: Suggestion[] = []
 const EMPTY_CATEGORIES: Category[] = []
 const INITIAL_SETTINGS: Settings = defaultSettings()
@@ -73,6 +75,7 @@ const loadOutboxCount = async (): Promise<number> => (await getOutbox()).length
 
 export const useInbox = (): InboxEntry[] => useLoaded(listInbox, EMPTY_INBOX)
 export const useItems = (): Item[] => useLoaded(listItems, EMPTY_ITEMS)
+export const useProjects = (): Project[] => useLoaded(listProjects, EMPTY_PROJECTS)
 export const useSuggestions = (): Suggestion[] => useLoaded(listSuggestions, EMPTY_SUGGESTIONS)
 export const useCategories = (): Category[] => useLoaded(getCategories, EMPTY_CATEGORIES)
 export const useSettings = (): Settings => useLoaded(getSettings, INITIAL_SETTINGS)

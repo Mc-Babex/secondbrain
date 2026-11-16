@@ -13,6 +13,7 @@ Legende: ⬜ offen · 🟨 in Arbeit · ✅ fertig · ⏸ verschoben
 | 6 | iPhone (Safari, Home-Bildschirm) | ✅ |
 | 7 | Fehler, Feinschliff, vollwertiger Kalender | ✅ |
 | 8 | Testphase mit weiteren Nutzern | ✅ (Abnahme 88 verschoben) |
+| 9 | Aufgabenseite nach GTD | 🟨 |
 
 ## Phase 8 – Testphase mit weiteren Nutzern
 Aufgaben ab 76 liegen in `docs/tasks/`; frühere Aufgaben sind nicht öffentlich.
@@ -32,3 +33,21 @@ Aufgaben ab 76 liegen in `docs/tasks/`; frühere Aufgaben sind nicht öffentlich
 | 86 Doku für Tester | ✅ |
 | 87 Öffentliches Repo: Bereinigung und Prüfung | ✅ |
 | 88 Abnahme mit zweitem Testkonto | ⏸ verschoben: erster externer Tester in einer späteren Phase |
+
+## Phase 9 – Aufgabenseite nach GTD
+Freigegeben 2026-11-16 (bei Format 1 bleiben; Aufgabe mit Datum ohne Planungswort ⇒ „fällig bis“; Abschnitt
+„Eingeplant“ im Reiter „Aktuell“; Übergangszeit mit alter Regel e hingenommen; Reiter „Aktuell“ und „Warte auf“).
+
+| Aufgabe | Status |
+|---|---|
+| 89 SPEC Phase 9 | ✅ |
+| 90 GTD-Datenmodell, Projekte, Migration | ✅ |
+| 91 Schritt-Serien | ⬜ |
+| 92 Reiter-Leiste und Reiter „Aktuell“ | ⬜ |
+| 93 Reiter „Warte auf“ und „Irgendwann“ | ⬜ |
+| 94 Projekte, Projektansicht, Serien-Dialog | ⬜ |
+| 95 Bearbeiten-Dialog und „In Ablage…“ | ⬜ |
+| 96 Seite 4: Projekte und Status-Kennzeichen | ⬜ |
+| 97 Claude-Lauf: Kalender-Regel, Status, Projekte | ⬜ |
+| 98 Testsätze und Trockenlauf | ⬜ |
+| 99 Abnahme und Veröffentlichen | ⬜ |

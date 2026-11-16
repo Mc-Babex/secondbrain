@@ -33,7 +33,7 @@ import { isObj } from './types'
 const CATEGORIES_PATH = 'categories.json'
 const SETTINGS_PATH = 'settings.json'
 const LAST_RUN_PATH = 'runs/last.json'
-const DIRS = ['inbox', 'items', 'suggestions'] as const
+const DIRS = ['inbox', 'items', 'suggestions', 'projects'] as const
 const ROOT_FILES: readonly string[] = [CATEGORIES_PATH, SETTINGS_PATH]
 /** Vom Claude-Lauf geschrieben; die App lädt sie nur herunter (nie hoch, nie in die Outbox). */
 const READ_ONLY_FILES: readonly string[] = [LAST_RUN_PATH]
@@ -167,10 +167,10 @@ async function mergeCategories(
   await clearSeededIfSettled()
 }
 
-/** IDs der Ablagen, auf die lokale Einträge zeigen (aktuell oder als ursprüngliche Ablage). */
+/** IDs der Ablagen, auf die lokale Einträge und Projekte zeigen (aktuell oder als ursprüngliche Ablage). */
 async function referencedCategoryIds(): Promise<Set<string>> {
   const ids = new Set<string>()
-  for (const file of await listFiles('items/')) {
+  for (const file of [...(await listFiles('items/')), ...(await listFiles('projects/'))]) {
     if (!isObj(file.data)) continue
     for (const key of ['categoryId', 'originalCategoryId'])
       if (typeof file.data[key] === 'string') ids.add(file.data[key])

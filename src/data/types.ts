@@ -1,5 +1,7 @@
 // Datenformen laut docs/SPEC.md §3 – einzige Quelle für Typen und Type Guards.
 
+import { isGtdStatus, migrateItem } from '../lib/gtdMigration'
+
 export type ItemType = 'aufgabe' | 'notiz' | 'termin'
 export type ItemStatus = 'offen' | 'erledigt'
 export type InboxSource = 'sprache' | 'text'
@@ -61,6 +63,18 @@ export interface Schedule {
   calendarEventId?: string | null
 }
 
+/** Gespeicherter GTD-Status einer Aufgabe (SPEC §3.3); „Termin“ wird nie gespeichert. */
+export type GtdStatus = 'naechster-schritt' | 'warten' | 'irgendwann'
+export type ProjectStatus = 'aktiv' | 'erledigt'
+export type SeriesState = 'aktiv' | 'pausiert' | 'beendet'
+
+/** „Warte auf“-Angaben (SPEC §3.3); Datumsangaben als `YYYY-MM-DD`. */
+export interface Waiting {
+  person: string
+  since: string
+  followUpOn: string | null
+}
+
 export interface Item {
   id: string
   type: ItemType
@@ -76,6 +90,53 @@ export interface Item {
   createdAt: string
   updatedAt: string
   completedAt: string | null
+  /** GTD-Felder (SPEC §3.3, Phase 9): nur Aufgaben, alle optional. */
+  gtd?: GtdStatus
+  dueDate?: string | null
+  waiting?: Waiting | null
+  projectId?: string | null
+  projectOrder?: number
+  seriesId?: string
+  seriesNumber?: number
+  archivedWithProject?: boolean
+  /** `2` = von einer App ab Phase 9 geschrieben. */
+  v?: number
+}
+
+/** Schritt-Serie eines Projekts (SPEC §3.12). Datumsangaben als `YYYY-MM-DD`. */
+export interface StepSeries {
+  id: string
+  titlePattern: string
+  every: number
+  weekday: number
+  startDate: string
+  endDate: string | null
+  count: number | null
+  dueWeekday: number | null
+  durationMin: number | null
+  state: SeriesState
+  lastNumber: number
+  lastDate: string | null
+}
+
+/** Serien-Objekt, das dieses Format nicht kennt (z. B. von einer neueren App): bleibt beim Schreiben erhalten. */
+export type UnknownSeries = Record<string, unknown>
+
+/** Eintrag in `Project.series`: gültige Serie oder ein unbekanntes Objekt. Für Logik `validSeries` nutzen. */
+export type SeriesEntry = StepSeries | UnknownSeries
+
+/** `projects/<id>.json` (SPEC §3.12). */
+export interface Project {
+  id: string
+  title: string
+  notes: string
+  categoryId: string
+  status: ProjectStatus
+  series: SeriesEntry[]
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+  v?: number
 }
 
 export type ProposedItem = Partial<Omit<Item, 'id'>> & Pick<Item, 'type' | 'title' | 'categoryId'>
@@ -118,11 +179,30 @@ export function isAutoSortEnabled(settings: Pick<Settings, 'autoSort'>): boolean
 /** Gelesene Formen: nur die Pflichtfelder sind garantiert, der Rest ist optional. */
 export type RawInboxEntry = Pick<InboxEntry, 'id' | 'text' | 'createdAt'> &
   Partial<Pick<InboxEntry, 'source'>> & { sortError?: unknown }
-export type RawItem = Pick<
-  Item,
-  'id' | 'type' | 'title' | 'categoryId' | 'status' | 'createdAt' | 'updatedAt'
+const GTD_KEYS = [
+  'gtd',
+  'dueDate',
+  'waiting',
+  'projectId',
+  'projectOrder',
+  'seriesId',
+  'seriesNumber',
+  'archivedWithProject',
+  'v',
+] as const
+type GtdKey = (typeof GTD_KEYS)[number]
+
+type RequiredItemKey = 'id' | 'type' | 'title' | 'categoryId' | 'status' | 'createdAt' | 'updatedAt'
+
+/** Die neuen Felder sind ungeprüft (`unknown`): ungültige Werte gelten beim Normalisieren als „fehlt“. */
+export type RawItem = Pick<Item, RequiredItemKey> &
+  Partial<Omit<Item, GtdKey>> &
+  Partial<Record<GtdKey, unknown>>
+export type RawProject = Pick<
+  Project,
+  'id' | 'title' | 'categoryId' | 'status' | 'createdAt' | 'updatedAt'
 > &
-  Partial<Item>
+  Partial<Omit<Project, 'series' | 'v'>> & { series?: unknown; v?: unknown }
 export type RawSuggestion = Pick<Suggestion, 'id' | 'kind' | 'proposedItem'> & Partial<Suggestion>
 
 const ITEM_TYPES: readonly string[] = ['aufgabe', 'notiz', 'termin']
@@ -130,6 +210,8 @@ const ITEM_STATUS: readonly string[] = ['offen', 'erledigt']
 const SOURCES: readonly string[] = ['sprache', 'text']
 const SUGGESTION_KINDS: readonly string[] = ['neue-aufgabe']
 const CATEGORY_KINDS: readonly string[] = ['normal', 'einkauf', 'archiv']
+const PROJECT_STATUS: readonly string[] = ['aktiv', 'erledigt']
+const SERIES_STATES: readonly string[] = ['aktiv', 'pausiert', 'beendet']
 
 type Obj = Record<string, unknown>
 
@@ -200,10 +282,62 @@ export function isItem(v: unknown): v is RawItem {
   )
 }
 
-/** Ergänzt Standardwerte für fehlende optionale Felder; unbekannte Felder bleiben erhalten. */
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/** `YYYY-MM-DD` mit gültigem Kalendertag. */
+export function isDateString(v: unknown): v is string {
+  if (!isStr(v)) return false
+  const m = DATE_RE.exec(v)
+  if (!m) return false
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  const d = new Date(Date.UTC(year, month - 1, day))
+  return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day
+}
+
+const isDateOrNull = (v: unknown): v is string | null => v === null || isDateString(v)
+
+function isWaiting(v: unknown): v is Waiting {
+  return (
+    isObj(v) && isStr(v.person) && isDateString(v.since) && absentOr(v.followUpOn, isDateOrNull)
+  )
+}
+
+/** Datumsteil (`YYYY-MM-DD`) eines ISO-Zeitstempels; leer, wenn er nicht so beginnt. */
+function datePart(iso: string): string {
+  const day = iso.slice(0, 10)
+  return isDateString(day) ? day : ''
+}
+
+/** Prüft die neuen GTD-Felder einzeln; nur gültige Werte werden übernommen (Rest = „fehlt“). */
+function validGtdFields(raw: RawItem): Partial<Pick<Item, GtdKey>> {
+  const out: Partial<Pick<Item, GtdKey>> = {}
+  if (isGtdStatus(raw.gtd)) out.gtd = raw.gtd
+  if (isDateOrNull(raw.dueDate)) out.dueDate = raw.dueDate
+  if (raw.waiting === null) out.waiting = null
+  else if (isWaiting(raw.waiting)) {
+    out.waiting = { ...raw.waiting, followUpOn: raw.waiting.followUpOn ?? null }
+  }
+  if (isStrOrNull(raw.projectId)) out.projectId = raw.projectId
+  if (isNum(raw.projectOrder)) out.projectOrder = raw.projectOrder
+  if (isStr(raw.seriesId)) out.seriesId = raw.seriesId
+  if (isNum(raw.seriesNumber)) out.seriesNumber = raw.seriesNumber
+  if (typeof raw.archivedWithProject === 'boolean')
+    out.archivedWithProject = raw.archivedWithProject
+  if (isNum(raw.v)) out.v = raw.v
+  return out
+}
+
+/**
+ * Ergänzt Standardwerte für fehlende optionale Felder; unbekannte Felder bleiben erhalten.
+ * Ungültige neue GTD-Felder gelten als „fehlt“ (das Rohfeld im Speicher bleibt unverändert);
+ * offene Aufgaben ohne gültigen Status werden migriert (SPEC §3.13).
+ */
 export function normalizeItem(raw: RawItem): Item {
-  return {
-    ...raw,
+  const rest: Record<string, unknown> = { ...raw }
+  for (const key of GTD_KEYS) delete rest[key]
+  const base: Item = {
+    ...(rest as Pick<RawItem, RequiredItemKey>),
+    ...validGtdFields(raw),
     notes: raw.notes ?? '',
     important: raw.important ?? false,
     durationMin: raw.durationMin ?? null,
@@ -211,6 +345,11 @@ export function normalizeItem(raw: RawItem): Item {
     originalCategoryId: raw.originalCategoryId ?? null,
     completedAt: raw.completedAt ?? null,
   }
+  const item = migrateItem(base)
+  if (item.type === 'aufgabe' && item.gtd === 'warten' && !item.waiting) {
+    return { ...item, waiting: { person: '', since: datePart(item.updatedAt), followUpOn: null } }
+  }
+  return item
 }
 
 function isProposedItem(v: unknown): v is ProposedItem {
@@ -294,5 +433,76 @@ export function parseLastRun(v: unknown): LastRun | null {
     itemIds,
     skipped: toRunMessages(v.skipped),
     errors: toRunMessages(v.errors),
+  }
+}
+
+export function isStepSeries(v: unknown): v is StepSeries {
+  return (
+    isObj(v) &&
+    isStr(v.id) &&
+    isStr(v.titlePattern) &&
+    isNum(v.every) &&
+    isNum(v.weekday) &&
+    isDateString(v.startDate) &&
+    absentOr(v.endDate, isDateOrNull) &&
+    absentOr(v.count, isNumOrNull) &&
+    absentOr(v.dueWeekday, isNumOrNull) &&
+    absentOr(v.durationMin, isNumOrNull) &&
+    absentOr(v.state, (x) => oneOf(SERIES_STATES, x)) &&
+    absentOr(v.lastNumber, isNum) &&
+    absentOr(v.lastDate, isDateOrNull)
+  )
+}
+
+/** Gültige Serie mit Standardwerten für fehlende Felder; unbekannte Felder bleiben erhalten. */
+function normalizeSeries(raw: StepSeries): StepSeries {
+  return {
+    ...raw,
+    endDate: raw.endDate ?? null,
+    count: raw.count ?? null,
+    dueWeekday: raw.dueWeekday ?? null,
+    durationMin: raw.durationMin ?? null,
+    state: raw.state ?? 'aktiv',
+    lastNumber: raw.lastNumber ?? 0,
+    lastDate: raw.lastDate ?? null,
+  }
+}
+
+export function isProject(v: unknown): v is RawProject {
+  return (
+    isObj(v) &&
+    isStr(v.id) &&
+    isStr(v.title) &&
+    isStr(v.categoryId) &&
+    oneOf(PROJECT_STATUS, v.status) &&
+    isStr(v.createdAt) &&
+    isStr(v.updatedAt) &&
+    absentOr(v.notes, isStr) &&
+    absentOr(v.completedAt, isStrOrNull) &&
+    absentOr(v.series, Array.isArray)
+  )
+}
+
+/** Nur die gültigen Serien (für Anzeige und Logik); die übrigen Einträge bleiben in `project.series`. */
+export function validSeries(project: Pick<Project, 'series'>): StepSeries[] {
+  return project.series.filter(isStepSeries)
+}
+
+/**
+ * Ergänzt Standardwerte; gültige Serien werden normalisiert, unbekannte Serien-Objekte bleiben
+ * unverändert in `series` erhalten (kein Datenverlust beim Schreiben). Unbekannte Felder bleiben erhalten.
+ */
+export function normalizeProject(raw: RawProject): Project {
+  const { v, series, ...rest } = raw
+  return {
+    ...rest,
+    notes: raw.notes ?? '',
+    completedAt: raw.completedAt ?? null,
+    series: Array.isArray(series)
+      ? series.flatMap((entry): SeriesEntry[] =>
+          isStepSeries(entry) ? [normalizeSeries(entry)] : isObj(entry) ? [entry] : [],
+        )
+      : [],
+    ...(isNum(v) ? { v } : {}),
   }
 }

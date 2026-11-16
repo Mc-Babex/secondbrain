@@ -8,6 +8,12 @@
   --color-danger: #f7768e;
   --color-success: #9ece6a;
   --color-border: #2c313c;
+  /* GTD-Status (Phase 9): eine Farbe je Status, überall gleich. */
+  --status-focus: #e0af68;
+  --status-next: #7dcfff;
+  --status-termin: var(--color-accent);
+  --status-waiting: #bb9af7;
+  --status-someday: #9aa1b2;
   --content-max-width: 720px;
   /* Dauer des Seitenwechsels (Leiste und Sichtbarkeit der abgehenden Seite, siehe App.module.css/PageSlot.module.css). */
   --page-transition: 300ms;
