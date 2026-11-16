@@ -15,6 +15,10 @@ interface TaskRowProps {
   focus?: boolean
   /** Zusätzlicher Knopf „✓ Erledigt“ (überfällige Termine). */
   doneButton?: boolean
+  /** Zusatzzeile unter den Kennzeichen (z. B. „seit 3 Tagen“). */
+  note?: ReactNode
+  /** Deutliche Hervorhebung (Kante und Fläche), z. B. fälliges Nachhaken. */
+  highlight?: boolean
   onComplete: (item: Item) => void
   onEdit: (item: Item) => void
   /** Uhr-Symbol bzw. Kalender-Aktionen (Slots, siehe `slots.ts`). */
@@ -29,12 +33,15 @@ export function TaskRow({
   projectName,
   focus = false,
   doneButton = false,
+  note,
+  highlight = false,
   onComplete,
   onEdit,
   actions,
 }: TaskRowProps) {
+  const classes = [styles.task, focus && styles.focusRow, highlight && styles.followUpRow]
   return (
-    <li className={focus ? `${styles.task} ${styles.focusRow}` : styles.task}>
+    <li className={classes.filter(Boolean).join(' ')} data-highlight={highlight || undefined}>
       <input
         type="checkbox"
         className={styles.checkbox}
@@ -52,6 +59,7 @@ export function TaskRow({
           {item.durationMin !== null && <span>{formatDuration(item.durationMin)}</span>}
           {projectName !== undefined && <span>Projekt: {projectName}</span>}
         </div>
+        {note}
       </div>
       <div className={styles.buttons}>
         {doneButton && (

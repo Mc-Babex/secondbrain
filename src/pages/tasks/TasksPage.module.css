@@ -185,6 +185,48 @@
   border-left: 4px solid var(--status-focus);
 }
 
+/* Nachhaken fällig: Kante und getönte Fläche; der Text „nachhaken …“ trägt die Aussage zusätzlich. */
+.followUpRow {
+  border-color: var(--status-focus);
+  border-left-width: 4px;
+  background: color-mix(in srgb, var(--status-focus) 10%, var(--color-surface));
+}
+
+.waitNote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem 0.75rem;
+  margin: 0.25rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.followUpText {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.dialogText {
+  margin: 0 0 var(--space);
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+}
+
+.dialogChoices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .hint {
   margin: 0 0 0.5rem;
   color: var(--color-text-muted);

@@ -69,16 +69,16 @@ export function CurrentTab(props: CurrentTabProps) {
 
   return (
     <>
+      {focusOverLimit(items) && (
+        <p className={styles.hint}>
+          Mehr als 5 Aufgaben im Fokus – was davon ist wirklich wichtig?
+        </p>
+      )}
       {focus.length > 0 && (
         <section className={styles.section} aria-labelledby="tasks-focus">
           <h2 id="tasks-focus" className={styles.heading}>
             <span aria-hidden="true">★ </span>Fokus
           </h2>
-          {focusOverLimit(items) && (
-            <p className={styles.hint}>
-              Mehr als 5 Aufgaben im Fokus – was davon ist wirklich wichtig?
-            </p>
-          )}
           <ul className={styles.list}>{focus.map((item) => row(item, { focus: true }))}</ul>
         </section>
       )}
