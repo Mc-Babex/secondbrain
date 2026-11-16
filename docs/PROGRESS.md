@@ -1,6 +1,6 @@
 # Fortschritt
 
-Legende: ⬜ offen · 🟨 in Arbeit · ✅ fertig
+Legende: ⬜ offen · 🟨 in Arbeit · ✅ fertig · ⏸ verschoben
 
 | Phase | Inhalt | Status |
 |---|---|---|
@@ -12,7 +12,7 @@ Legende: ⬜ offen · 🟨 in Arbeit · ✅ fertig
 | 5 | Cloud-Lauf per Knopf | ✅ |
 | 6 | iPhone (Safari, Home-Bildschirm) | ✅ |
 | 7 | Fehler, Feinschliff, vollwertiger Kalender | ✅ |
-| 8 | Testphase mit weiteren Nutzern | 🟨 |
+| 8 | Testphase mit weiteren Nutzern | ✅ (Abnahme 88 verschoben) |
 
 ## Phase 8 – Testphase mit weiteren Nutzern
 Aufgaben ab 76 liegen in `docs/tasks/`; frühere Aufgaben sind nicht öffentlich.
@@ -31,4 +31,4 @@ Aufgaben ab 76 liegen in `docs/tasks/`; frühere Aufgaben sind nicht öffentlich
 | 85 Feedback senden + Issue-Vorlagen | ✅ |
 | 86 Doku für Tester | ✅ |
 | 87 Öffentliches Repo: Bereinigung und Prüfung | ✅ |
-| 88 Abnahme mit zweitem Testkonto | ⬜ |
+| 88 Abnahme mit zweitem Testkonto | ⏸ verschoben: erster externer Tester in einer späteren Phase |
