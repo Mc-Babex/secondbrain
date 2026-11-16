@@ -1,7 +1,14 @@
 // Testsätze aus dem JSON-Block von docs/sortier-tests.md (Aufgaben 19 und 22).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { isCategory, isObj, type Category, type Item } from '../../src/data/types'
+import {
+  isCategory,
+  isObj,
+  type Category,
+  type GtdStatus,
+  type Item,
+  type Project,
+} from '../../src/data/types'
 import { CODE_ROOT } from './dataDir'
 import type { CalendarEvent } from './files'
 
@@ -19,12 +26,34 @@ export interface ExpectedItem {
   notesContains?: string[]
   /** `true`: `notes` muss leer sein. */
   notesEmpty?: boolean
+  /** GTD-Status (SPEC §3.3); nur bei Aufgaben geprüft. */
+  gtd?: GtdStatus
+  /** „Fällig bis“ als `YYYY-MM-DD`, `null` = keine Frist. */
+  dueDate?: string | null
+  /** `null` = kein „Warte auf“; sonst enthält `waiting.person` den Teilstring, `followUpOn` ist genau gleich (sofern angegeben). */
+  waiting?: ExpectedWaiting | null
+  /** Projekt des Schritts: `null` = keins, ID eines vorhandenen Projekts oder `"@neu"` = das neue Projekt der Entscheidung. */
+  projectId?: string | null
+}
+
+export interface ExpectedWaiting {
+  person: string
+  followUpOn?: string | null
+}
+
+/** Erwartetes neues Projekt einer Entscheidung (SPEC §8.3 Regel 9). */
+export interface ExpectedProject {
+  titleMaxLen?: number
+  categoryId?: string
+  notesContains?: string[]
 }
 
 export interface TestCase {
   nr: number
   text: string
   newCategory?: { id: string; name: string }
+  /** Fehlt = es darf kein neues Projekt entstehen. */
+  newProject?: ExpectedProject
   expect: ExpectedItem[]
 }
 
@@ -37,8 +66,14 @@ export interface ExistingItemSpec {
   type?: 'aufgabe' | 'notiz'
   important?: boolean
   durationMin?: number
-  /** Erwarteter Termin, den der Lauf der Aufgabe gibt (SPEC §8.4 e). */
-  expectSchedule?: { start: string; durationMin: number }
+}
+
+/** Bereits vorhandenes aktives Projekt (`projects/`) samt offenen Schritten (Titel in Reihenfolge). */
+export interface ExistingProjectSpec {
+  title: string
+  notes: string
+  categoryId: string
+  steps?: string[]
 }
 
 export interface TestSpec {
@@ -49,6 +84,7 @@ export interface TestSpec {
   /** Alle Ablagen der Ausgangslage, ausdrücklich (unabhängig von den Standardwerten der App). */
   categories: Category[]
   existingItems?: ExistingItemSpec[]
+  existingProjects?: ExistingProjectSpec[]
   events: CalendarEvent[]
   cases: TestCase[]
 }
@@ -65,6 +101,26 @@ const isScheduleExpectation = (v: unknown): boolean =>
 
 const isOptionalBoolean = (v: unknown): boolean => v === undefined || typeof v === 'boolean'
 
+const isStringList = (v: unknown): boolean =>
+  v === undefined || (Array.isArray(v) && v.every((n) => typeof n === 'string'))
+
+const isStringOrNull = (v: unknown): boolean =>
+  v === undefined || v === null || typeof v === 'string'
+
+const GTD_VALUES: readonly string[] = ['naechster-schritt', 'warten', 'irgendwann']
+
+const isWaitingExpectation = (v: unknown): boolean =>
+  v === undefined ||
+  v === null ||
+  (isObj(v) && typeof v.person === 'string' && isStringOrNull(v.followUpOn))
+
+const isExpectedProject = (v: unknown): boolean =>
+  v === undefined ||
+  (isObj(v) &&
+    (v.categoryId === undefined || typeof v.categoryId === 'string') &&
+    (v.titleMaxLen === undefined || typeof v.titleMaxLen === 'number') &&
+    isStringList(v.notesContains))
+
 const isExpectedItem = (v: unknown): v is ExpectedItem =>
   isObj(v) &&
   (v.type === undefined || typeof v.type === 'string') &&
@@ -74,8 +130,11 @@ const isExpectedItem = (v: unknown): v is ExpectedItem =>
   isOptionalBoolean(v.sortError) &&
   isOptionalBoolean(v.notesEmpty) &&
   (v.titleMaxLen === undefined || typeof v.titleMaxLen === 'number') &&
-  (v.notesContains === undefined ||
-    (Array.isArray(v.notesContains) && v.notesContains.every((n) => typeof n === 'string'))) &&
+  isStringList(v.notesContains) &&
+  (v.gtd === undefined || (typeof v.gtd === 'string' && GTD_VALUES.includes(v.gtd))) &&
+  isStringOrNull(v.dueDate) &&
+  isWaitingExpectation(v.waiting) &&
+  isStringOrNull(v.projectId) &&
   isDurationExpectation(v.durationMin) &&
   isScheduleExpectation(v.schedule)
 
@@ -87,6 +146,7 @@ const isTestCase = (v: unknown): v is TestCase =>
     (isObj(v.newCategory) &&
       typeof v.newCategory.id === 'string' &&
       typeof v.newCategory.name === 'string')) &&
+  isExpectedProject(v.newProject) &&
   Array.isArray(v.expect) &&
   v.expect.every(isExpectedItem)
 
@@ -97,11 +157,14 @@ const isExistingItemSpec = (v: unknown): v is ExistingItemSpec =>
   isOptionalBoolean(v.checked) &&
   (v.type === undefined || v.type === 'aufgabe' || v.type === 'notiz') &&
   isOptionalBoolean(v.important) &&
-  (v.durationMin === undefined || typeof v.durationMin === 'number') &&
-  (v.expectSchedule === undefined ||
-    (isObj(v.expectSchedule) &&
-      typeof v.expectSchedule.start === 'string' &&
-      typeof v.expectSchedule.durationMin === 'number'))
+  (v.durationMin === undefined || typeof v.durationMin === 'number')
+
+const isExistingProjectSpec = (v: unknown): v is ExistingProjectSpec =>
+  isObj(v) &&
+  typeof v.title === 'string' &&
+  typeof v.notes === 'string' &&
+  typeof v.categoryId === 'string' &&
+  isStringList(v.steps)
 
 const isEventList = (v: unknown): v is CalendarEvent[] =>
   Array.isArray(v) && v.every((e) => isObj(e) && typeof e.title === 'string')
@@ -120,16 +183,19 @@ export function isTestSpec(v: unknown): v is TestSpec {
     v.categories.every(isCategory) &&
     (v.existingItems === undefined ||
       (Array.isArray(v.existingItems) && v.existingItems.every(isExistingItemSpec))) &&
+    (v.existingProjects === undefined ||
+      (Array.isArray(v.existingProjects) && v.existingProjects.every(isExistingProjectSpec))) &&
     isEventList(v.events) &&
     Array.isArray(v.cases) &&
     v.cases.every(isTestCase)
   )
 }
 
-/** Testsatz 1 (`docs/sortier-tests.md`) oder 2 (`docs/sortier-tests-2.md`). */
-export type TestSet = 1 | 2
+/** Testsatz 1, 2 oder 3 (`docs/sortier-tests.md`, `-2.md`, `-3.md`). */
+export type TestSet = 1 | 2 | 3
 
-const testFileOf = (set: TestSet): string => (set === 2 ? 'sortier-tests-2.md' : 'sortier-tests.md')
+const testFileOf = (set: TestSet): string =>
+  set === 1 ? 'sortier-tests.md' : `sortier-tests-${set}.md`
 
 /** Wert der Option `--satz` (Standard 1); `null` bei ungültigem Wert. */
 export function testSetFromArgs(argv: readonly string[]): TestSet | null {
@@ -137,7 +203,8 @@ export function testSetFromArgs(argv: readonly string[]): TestSet | null {
   if (index < 0) return 1
   const value = argv[index + 1]
   if (value === '1') return 1
-  return value === '2' ? 2 : null
+  if (value === '2') return 2
+  return value === '3' ? 3 : null
 }
 
 /** Liest und prüft den JSON-Block aus `docs/sortier-tests.md` (bzw. `-2.md`). */
@@ -167,9 +234,59 @@ export const testCategories = (spec: TestSpec): Category[] => spec.categories
 export const existingIdOf = (index: number): string =>
   `20261020-090000-e${String(index + 1).padStart(3, '0')}`
 
-/** Vorhandene Einträge der Ausgangslage als vollständige Items (feste IDs, vor `createdAtOf`). */
+/** ID des vorhandenen Projekts (0-basierter Index in `existingProjects`). */
+export const existingProjectIdOf = (index: number): string =>
+  `20261020-100000-p${String(index + 1).padStart(3, '0')}`
+
+/** Vorhandene Projekte der Ausgangslage (aktiv, ohne Serien). */
+export const testProjects = (spec: TestSpec): Project[] =>
+  (spec.existingProjects ?? []).map((p, index) => ({
+    id: existingProjectIdOf(index),
+    title: p.title,
+    notes: p.notes,
+    categoryId: p.categoryId,
+    status: 'aktiv',
+    series: [],
+    createdAt: '2026-10-20T10:00:00+02:00',
+    updatedAt: '2026-10-20T10:00:00+02:00',
+    completedAt: null,
+    v: 2,
+  }))
+
+/** Offene Schritte der vorhandenen Projekte (laufende IDs `…-s001`, Reihenfolge je Projekt ab 1). */
+function testProjectSteps(spec: TestSpec): Item[] {
+  let counter = 0
+  return (spec.existingProjects ?? []).flatMap((project, projectIndex) =>
+    (project.steps ?? []).map((title, stepIndex): Item => {
+      counter++
+      return {
+        id: `20261020-100100-s${String(counter).padStart(3, '0')}`,
+        type: 'aufgabe',
+        title,
+        notes: '',
+        categoryId: project.categoryId,
+        status: 'offen',
+        important: false,
+        durationMin: null,
+        schedule: null,
+        originalCategoryId: null,
+        createdAt: '2026-10-20T10:01:00+02:00',
+        updatedAt: '2026-10-20T10:01:00+02:00',
+        completedAt: null,
+        gtd: 'naechster-schritt',
+        dueDate: null,
+        waiting: null,
+        projectId: existingProjectIdOf(projectIndex),
+        projectOrder: stepIndex + 1,
+        v: 2,
+      }
+    }),
+  )
+}
+
+/** Vorhandene Einträge der Ausgangslage als vollständige Items (feste IDs, vor `createdAtOf`), danach die Projekt-Schritte. */
 export function testExistingItems(spec: TestSpec): Item[] {
-  return (spec.existingItems ?? []).map((e, index) => ({
+  const plain = (spec.existingItems ?? []).map((e, index): Item => ({
     id: existingIdOf(index),
     type: e.type ?? 'notiz',
     title: e.title,
@@ -185,4 +302,5 @@ export function testExistingItems(spec: TestSpec): Item[] {
     updatedAt: '2026-10-20T09:00:00+02:00',
     completedAt: null,
   }))
+  return [...plain, ...testProjectSteps(spec)]
 }

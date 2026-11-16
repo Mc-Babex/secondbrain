@@ -1,10 +1,19 @@
 import { pathToFileURL } from 'node:url'
-import { isObj, type Item } from '../../src/data/types'
+import { isObj, type Item, type Project } from '../../src/data/types'
 import { readRepoFile } from './dataRepo'
 import { isPlanFile, type PlanEntry } from './files'
 import { dataDirOrResult, printResult, type LaufResult } from './git'
 import { BACKUP_DIR, type TestCaseMap } from './testdaten'
-import { loadTestSpec, testSetFromArgs, type ExpectedItem, type TestCase } from './testspec'
+import {
+  loadTestSpec,
+  testSetFromArgs,
+  type ExpectedItem,
+  type ExpectedProject,
+  type TestCase,
+} from './testspec'
+
+/** Verweis auf das neue Projekt der Entscheidung (wie projectId "@neu" in den Entscheidungen). */
+const NEW_PROJECT = '@neu'
 
 const isCaseMap = (v: unknown): v is TestCaseMap =>
   isObj(v) &&
@@ -49,8 +58,69 @@ function diffTexts(actual: Item, expected: ExpectedItem): string[] {
   return out
 }
 
-function diffItem(actual: Item, expected: ExpectedItem): string[] {
-  const out: string[] = diffTexts(actual, expected)
+function diffWaiting(actual: Item['waiting'] | null, expected: ExpectedItem['waiting']): string[] {
+  if (expected === undefined) return []
+  if (expected === null) {
+    return actual ? [`wartet auf ${actual.person} statt nicht zu warten`] : []
+  }
+  if (!actual) return [`wartet nicht statt auf ${expected.person}`]
+  const out: string[] = []
+  if (!normalize(actual.person).includes(normalize(expected.person))) {
+    out.push(`wartet auf „${actual.person}“ statt „${expected.person}“`)
+  }
+  if (expected.followUpOn !== undefined && actual.followUpOn !== expected.followUpOn) {
+    out.push(`Nachhaken ${actual.followUpOn ?? 'nie'} statt ${expected.followUpOn ?? 'nie'}`)
+  }
+  return out
+}
+
+function diffGtd(actual: Item, expected: ExpectedItem): string[] {
+  const out: string[] = []
+  const status = actual.gtd ?? 'naechster-schritt'
+  if (expected.gtd !== undefined && status !== expected.gtd) {
+    out.push(`Status ${status} statt ${expected.gtd}`)
+  }
+  if (expected.dueDate !== undefined && (actual.dueDate ?? null) !== expected.dueDate) {
+    out.push(`fällig ${actual.dueDate ?? 'nie'} statt ${expected.dueDate ?? 'nie'}`)
+  }
+  out.push(...diffWaiting(actual.waiting ?? null, expected.waiting))
+  return out
+}
+
+function diffProjectRef(
+  actual: Item,
+  expected: ExpectedItem,
+  newProject: Project | null,
+): string[] {
+  if (expected.projectId === undefined) return []
+  const actualId = actual.projectId ?? null
+  if (expected.projectId === NEW_PROJECT) {
+    return newProject && actualId === newProject.id ? [] : ['kein Schritt im neuen Projekt']
+  }
+  if (actualId === expected.projectId) return []
+  return [`Projekt ${actualId ?? 'keins'} statt ${expected.projectId ?? 'keins'}`]
+}
+
+function diffNewProject(expected: ExpectedProject | undefined, actual: Project | null): string[] {
+  if (!expected) return actual ? [`unerwartetes neues Projekt „${actual.title}“`] : []
+  if (!actual) return ['neues Projekt fehlt']
+  const out: string[] = []
+  if (expected.titleMaxLen !== undefined && actual.title.length > expected.titleMaxLen) {
+    out.push(`Projekttitel ${actual.title.length} Zeichen statt höchstens ${expected.titleMaxLen}`)
+  }
+  if (expected.categoryId !== undefined && actual.categoryId !== expected.categoryId) {
+    out.push(`Projekt-Ablage ${actual.categoryId} statt ${expected.categoryId}`)
+  }
+  const notes = normalize(actual.notes)
+  for (const part of expected.notesContains ?? []) {
+    if (!notes.includes(normalize(part))) out.push(`Projektnotiz enthält nicht „${part}“`)
+  }
+  return out
+}
+
+function diffItem(actual: Item, expected: ExpectedItem, newProject: Project | null): string[] {
+  const out: string[] = [...diffTexts(actual, expected), ...diffGtd(actual, expected)]
+  out.push(...diffProjectRef(actual, expected, newProject))
   if (expected.type !== undefined && actual.type !== expected.type) {
     out.push(`Art ${actual.type} statt ${expected.type}`)
   }
@@ -94,7 +164,9 @@ export function diffCase(c: TestCase, entry: PlanEntry | undefined): string[] {
   if (!c.newCategory && entry.newCategory) {
     out.push(`unerwartete neue Ablage ${entry.newCategory.id}`)
   }
-  entry.items.forEach((item, i) => out.push(...diffItem(item, expected[i])))
+  const created = entry.newProject ?? null
+  out.push(...diffNewProject(c.newProject, created))
+  entry.items.forEach((item, i) => out.push(...diffItem(item, expected[i], created)))
   return out
 }
 
@@ -147,7 +219,7 @@ export async function runVergleich(options: {
   }
 
   const set = testSetFromArgs(options.argv)
-  if (set === null) return { exitCode: 1, lines: ['Nach --satz muss 1 oder 2 stehen.'] }
+  if (set === null) return { exitCode: 1, lines: ['Nach --satz muss 1, 2 oder 3 stehen.'] }
   const spec = loadTestSpec(undefined, set)
   const lines: string[] = []
   let passed = 0

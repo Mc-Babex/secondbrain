@@ -49,5 +49,5 @@ Freigegeben 2026-11-16 (bei Format 1 bleiben; Aufgabe mit Datum ohne Planungswor
 | 95 Bearbeiten-Dialog und „In Ablage…“ | ✅ |
 | 96 Seite 4: Projekte und Status-Kennzeichen | ✅ |
 | 97 Claude-Lauf: Kalender-Regel, Status, Projekte | ✅ |
-| 98 Testsätze und Trockenlauf | ⬜ |
+| 98 Testsätze und Trockenlauf | 🟨 (Trockenlauf offen) |
 | 99 Abnahme und Veröffentlichen | ⬜ |

@@ -266,6 +266,7 @@ describe('Lauf-Skripte nach GTD', () => {
     expect(result.exitCode).toBe(0)
     expect(result.lines.join('\n')).toContain('gibt es nicht mehr oder es ist abgeschlossen')
     expect(await read(`items/${INBOX_ID}.json`)).toBeUndefined()
+    expect(await read(`inbox/${INBOX_ID}.json`)).toMatchObject({ id: INBOX_ID, text: 'Schritt' })
   })
 
   describe('lauf:pruefen', () => {

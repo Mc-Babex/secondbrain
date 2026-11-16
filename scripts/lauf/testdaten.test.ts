@@ -13,7 +13,7 @@ beforeEach(async () => {
 })
 afterEach(() => rm(root, { recursive: true, force: true }))
 
-describe.each<TestSet>([1, 2])('lauf:testdaten Satz %i', (set) => {
+describe.each<TestSet>([1, 2, 3])('lauf:testdaten Satz %i', (set) => {
   it('schreibt die Ablagen ausdrücklich aus dem Testsatz (inkl. studium und Archiv)', async () => {
     const dir = join(root, 'daten')
     const result = await runTestdaten({ argv: ['--ziel', dir, '--satz', String(set)] })

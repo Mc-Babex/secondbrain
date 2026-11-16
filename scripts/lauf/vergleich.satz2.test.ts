@@ -113,7 +113,8 @@ describe('Testsatz 2', () => {
   it('liest --satz (Standard 1, ungültig = null)', () => {
     expect(testSetFromArgs([])).toBe(1)
     expect(testSetFromArgs(['--satz', '2'])).toBe(2)
-    expect(testSetFromArgs(['--satz', '3'])).toBeNull()
+    expect(testSetFromArgs(['--satz', '3'])).toBe(3)
+    expect(testSetFromArgs(['--satz', '9'])).toBeNull()
   })
 
   it('hat höchstens 29 Fälle', () => {

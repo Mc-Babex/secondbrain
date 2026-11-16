@@ -10,6 +10,7 @@ import {
   loadTestSpec,
   testCategories,
   testExistingItems,
+  testProjects,
   testSetFromArgs,
 } from './testspec'
 
@@ -45,7 +46,7 @@ export async function runTestdaten({ argv }: { argv: readonly string[] }): Promi
   }
 
   const set = testSetFromArgs(argv)
-  if (set === null) return { exitCode: 1, lines: ['Nach --satz muss 1 oder 2 stehen.'] }
+  if (set === null) return { exitCode: 1, lines: ['Nach --satz muss 1, 2 oder 3 stehen.'] }
   const spec = loadTestSpec(undefined, set)
   await mkdir(dir, { recursive: true })
   for (const c of spec.cases) {
@@ -59,13 +60,15 @@ export async function runTestdaten({ argv }: { argv: readonly string[] }): Promi
   }
   for (const item of testExistingItems(spec))
     await writeJsonFile(dir, `items/${item.id}.json`, item)
+  for (const project of testProjects(spec))
+    await writeJsonFile(dir, `projects/${project.id}.json`, project)
   await writeJsonFile(dir, 'categories.json', { categories: testCategories(spec) })
   await writeJsonFile(dir, 'settings.json', {
     planningWindow: spec.planningWindow,
     ...(spec.pause === undefined ? {} : { pause: spec.pause }),
     timezone: 'Europe/Berlin',
   })
-  const satz = set === 2 ? ' --satz 2' : ''
+  const satz = set === 1 ? '' : ` --satz ${set}`
   const caseMap: TestCaseMap = {
     cases: spec.cases.map((c) => ({ inboxId: inboxIdOf(c.nr), nr: c.nr })),
   }
