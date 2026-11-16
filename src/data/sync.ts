@@ -27,6 +27,7 @@ import {
   type StoredFile,
 } from './localStore'
 import { notifyChange, subscribe } from './repository'
+import { createDueSeriesInstances } from './seriesInstances'
 import { getFormatCheck, getSyncStatus, setFormatCheck, setSyncStatus } from './syncStatus'
 import { isObj } from './types'
 
@@ -415,8 +416,12 @@ async function runSync(): Promise<void> {
   try {
     const blocked = await sendOutbox(config)
     const { note, formatProblem } = await receiveRemote(config)
+    let problem = blocked ?? formatProblem
+    // Serien-Instanzen (SPEC §3.12) nur nach vollständig erfolgreichem Senden und Herunterladen.
+    if (problem === null && note === null && (await createDueSeriesInstances()) > 0) {
+      problem = await sendOutbox(config)
+    }
     const pending = await countPending()
-    const problem = blocked ?? formatProblem
     if (problem !== null) throw new SyncAbort(problem)
     setSyncStatus({
       state: pending > 0 ? 'ausstehend' : 'synchron',

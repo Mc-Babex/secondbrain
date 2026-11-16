@@ -1,8 +1,17 @@
 // Zwischendateien in `<daten>/.lauf/` (siehe docs/tasks/18): Typen + strenge Type Guards.
 // Zeiten ohne Offset gelten als Berliner Ortszeit.
-import { isObj, type Category, type Item, type ItemType } from '../../src/data/types'
+import {
+  isObj,
+  type Category,
+  type GtdStatus,
+  type Item,
+  type ItemType,
+  type Project,
+  type Waiting,
+} from '../../src/data/types'
 import {
   checkField,
+  GTD_STATUSES,
   isDate,
   isId,
   isInt,
@@ -12,13 +21,17 @@ import {
   isTimestamp,
   ITEM_TYPES,
   TIMESTAMP_HINT,
+  isWaiting,
   validateCategoryFields,
   validateItemFields,
+  validateProjectFields,
   type Messages,
 } from './validate'
 
 /** Platzhalter für die in derselben Entscheidung neu angelegte Ablage. */
 export const NEW_CATEGORY_REF = '@neu'
+/** Platzhalter für das in derselben Entscheidung neu angelegte Projekt. */
+export const NEW_PROJECT_REF = '@neu'
 
 export interface DecisionWhen {
   date: string
@@ -33,6 +46,21 @@ export interface DecisionItem {
   important: boolean
   durationMin: number | null
   when: DecisionWhen | null
+  /** Ausdrücklich in den Kalender einplanen (SPEC §8.3 Regel 10). Bei Aufgaben Pflicht, sonst optional. */
+  plan?: boolean
+  /** GTD-Felder (SPEC §3.3): nur bei `type: "aufgabe"`, dort Pflicht (`waiting` bei `warten`). */
+  gtd?: GtdStatus | null
+  dueDate?: string | null
+  waiting?: Waiting | null
+  /** Projekt-ID, `"@neu"` (mit `newProject` der Entscheidung) oder `null`. */
+  projectId?: string | null
+}
+
+export interface NewProjectRequest {
+  title: string
+  notes: string
+  /** Ablagen-ID oder `"@neu"` (mit `newCategory` der Entscheidung). */
+  categoryId: string
 }
 
 export interface NewCategoryRequest {
@@ -43,6 +71,7 @@ export interface NewCategoryRequest {
 export interface Decision {
   inboxId: string
   newCategory: NewCategoryRequest | null
+  newProject?: NewProjectRequest | null
   items: DecisionItem[]
 }
 
@@ -72,6 +101,8 @@ export interface PlanEntry {
   result: 'ok' | 'sortError'
   message: string | null
   newCategory: Category | null
+  /** Neu angelegtes Projekt dieser Entscheidung (SPEC §3.12); fehlt oder `null` = keins. */
+  newProject?: Project | null
   items: Item[]
 }
 
@@ -91,22 +122,12 @@ export interface PlanDuplicate {
   existingItemId: string | null
 }
 
-/** Vorhandene wichtige Aufgabe ohne Termin, die der Lauf einplant (SPEC §8.4 e). */
-export interface PlanExisting {
-  itemId: string
-  title: string
-  start: string
-  durationMin: number
-}
-
 export interface PlanFile {
   now: string
   entries: PlanEntry[]
   events: PlanEvent[]
-  /** `inboxId: null` bei Hinweisen zu vorhandenen Aufgaben (Phase e). */
   errors: { inboxId: string | null; message: string }[]
   duplicates?: PlanDuplicate[]
-  existing?: PlanExisting[]
 }
 
 export interface EventIdsFile {
@@ -142,7 +163,48 @@ function isWhen(v: unknown): boolean {
   return v === null || (isObj(v) && isDate(v.date) && (v.time === null || isTime(v.time)))
 }
 
-function validateDecisionItem(v: unknown, hasNewCategory: boolean): Messages {
+const isDateOrNull = (x: unknown): boolean => x === null || isDate(x)
+
+/** GTD-Felder einer Entscheidung: bei Aufgaben Pflicht, sonst weglassen oder `null`. */
+function validateDecisionGtd(
+  m: Messages,
+  v: Record<string, unknown>,
+  hasNewProject: boolean,
+): void {
+  const isTask = v.type === 'aufgabe'
+  const has = (key: string): boolean => v[key] !== undefined && v[key] !== null
+  const required = (key: string, ok: (x: unknown) => boolean, expected: string): void => {
+    if (isTask || has(key)) checkField(m, v, key, ok, expected)
+  }
+  required('plan', (x) => typeof x === 'boolean', 'true oder false')
+  required(
+    'gtd',
+    (x) => isOneOf(GTD_STATUSES, x),
+    '"naechster-schritt", "warten" oder "irgendwann"',
+  )
+  required('dueDate', isDateOrNull, 'null oder Datum YYYY-MM-DD')
+  required('projectId', (x) => x === null || isNonEmptyString(x), 'null, Projekt-ID oder "@neu"')
+  if (v.gtd === 'warten') {
+    checkField(
+      m,
+      v,
+      'waiting',
+      (x) => isWaiting(x) && isNonEmptyString((x as { person: unknown }).person),
+      '{ person (nicht leer), since (YYYY-MM-DD), followUpOn (YYYY-MM-DD oder null) } – bei gtd "warten" Pflicht',
+    )
+  } else if (has('waiting')) {
+    checkField(m, v, 'waiting', isWaiting, 'null oder { person, since, followUpOn }')
+  }
+  if (v.projectId === NEW_PROJECT_REF && !hasNewProject) {
+    m.push('projectId "@neu" verlangt eine newProject in dieser Entscheidung.')
+  }
+}
+
+function validateDecisionItem(
+  v: unknown,
+  hasNewCategory: boolean,
+  hasNewProject: boolean,
+): Messages {
   if (!isObj(v)) return ['Eintrag ist kein JSON-Objekt.']
   const m: Messages = []
   checkField(m, v, 'type', (x) => isOneOf(ITEM_TYPES, x), '"aufgabe", "notiz" oder "termin"')
@@ -161,7 +223,17 @@ function validateDecisionItem(v: unknown, hasNewCategory: boolean): Messages {
     'null oder ganze Zahl ≥ 1',
   )
   checkField(m, v, 'when', isWhen, 'null oder { date (YYYY-MM-DD), time (HH:MM oder null) }')
+  validateDecisionGtd(m, v, hasNewProject)
   return m
+}
+
+function isNewProject(x: unknown): boolean {
+  return (
+    isObj(x) &&
+    isNonEmptyString(x.title) &&
+    typeof x.notes === 'string' &&
+    isNonEmptyString(x.categoryId)
+  )
 }
 
 function validateDecision(v: unknown): Messages {
@@ -176,11 +248,23 @@ function validateDecision(v: unknown): Messages {
       x === null || (isObj(x) && isNonEmptyString(x.name) && typeof x.description === 'string'),
     'null oder { name (nicht leer), description }',
   )
+  if ('newProject' in v)
+    checkField(
+      m,
+      v,
+      'newProject',
+      (x) => x === null || isNewProject(x),
+      'null oder { title (nicht leer), notes (Text), categoryId (Ablagen-ID oder "@neu") }',
+    )
   const hasNew = isObj(v.newCategory)
+  const hasNewProject = isObj(v.newProject)
+  if (isObj(v.newProject) && v.newProject.categoryId === NEW_CATEGORY_REF && !hasNew) {
+    m.push('newProject.categoryId "@neu" verlangt eine newCategory in dieser Entscheidung.')
+  }
   if (!('items' in v) || !Array.isArray(v.items) || v.items.length === 0) {
     m.push('Feld "items" fehlt oder ist leer (erwartet: Liste mit mindestens einem Eintrag).')
   } else {
-    checkList(m, v, 'items', (e) => validateDecisionItem(e, hasNew))
+    checkList(m, v, 'items', (e) => validateDecisionItem(e, hasNew, hasNewProject))
   }
   return m
 }
@@ -245,6 +329,15 @@ function validatePlanEntry(v: unknown): Messages {
       x === null || (isObj(x) && validateCategoryFields(x).length === 0 && x.kind === 'normal'),
     'null oder vollständige Ablage mit kind "normal"',
   )
+  if (v.newProject !== undefined) {
+    checkField(
+      m,
+      v,
+      'newProject',
+      (x) => x === null || validateProjectFields(x, null).length === 0,
+      'null oder vollständiges Projekt',
+    )
+  }
   checkList(m, v, 'items', (item) => validateItemFields(item, null))
   return m
 }
@@ -283,16 +376,6 @@ function validatePlanDuplicate(v: unknown): Messages {
   return m
 }
 
-function validatePlanExisting(v: unknown): Messages {
-  if (!isObj(v)) return ['Eintrag ist kein JSON-Objekt.']
-  const m: Messages = []
-  checkField(m, v, 'itemId', isId, 'ID im Format YYYYMMDD-HHmmss-xxxx')
-  checkField(m, v, 'title', isNonEmptyString, 'nicht leerer Text')
-  checkField(m, v, 'start', isTimestamp, TIMESTAMP_HINT)
-  checkField(m, v, 'durationMin', (x) => isInt(x) && x >= 1, 'ganze Zahl ≥ 1')
-  return m
-}
-
 /** `plan.json` (schreibt das Planungsskript). */
 export function validatePlanFile(v: unknown): Messages {
   if (!isObj(v)) return ['Inhalt ist kein JSON-Objekt.']
@@ -302,7 +385,6 @@ export function validatePlanFile(v: unknown): Messages {
   checkList(m, v, 'events', validatePlanEvent)
   checkList(m, v, 'errors', validateInboxMessage)
   if ('duplicates' in v) checkList(m, v, 'duplicates', validatePlanDuplicate)
-  if ('existing' in v) checkList(m, v, 'existing', validatePlanExisting)
   return m
 }
 

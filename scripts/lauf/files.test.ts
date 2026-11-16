@@ -20,6 +20,10 @@ const decisionItem = {
   important: true,
   durationMin: 15,
   when: null,
+  plan: true,
+  gtd: 'naechster-schritt',
+  dueDate: null,
+  projectId: null,
 }
 const decisions = {
   decisions: [{ inboxId: '20261021-140000-a1b2', newCategory: null, items: [decisionItem] }],
@@ -67,6 +71,69 @@ describe('entscheidungen.json', () => {
 
   it('lehnt "@neu" ohne newCategory ab', () => {
     expect(validateDecisionsFile(withItem({ categoryId: '@neu' })).join(' ')).toContain('@neu')
+  })
+
+  describe('GTD-Felder (Phase 9)', () => {
+    it.each([
+      ['plan', { plan: undefined }],
+      ['plan', { plan: 'ja' }],
+      ['gtd', { gtd: undefined }],
+      ['gtd', { gtd: 'bald' }],
+      ['dueDate', { dueDate: undefined }],
+      ['dueDate', { dueDate: '30.10.' }],
+      ['projectId', { projectId: undefined }],
+      ['projectId', { projectId: '' }],
+    ])('verlangt bei Aufgaben ein gültiges %s', (field, patch) => {
+      expect(validateDecisionsFile(withItem(patch)).join(' ')).toContain(`"${field}"`)
+    })
+
+    it('verlangt waiting bei "warten", prüft dessen Form', () => {
+      expect(validateDecisionsFile(withItem({ gtd: 'warten' })).join(' ')).toContain('"waiting"')
+      const waiting = { person: 'Becker', since: '2026-10-21', followUpOn: '2026-10-28' }
+      expect(isDecisionsFile(withItem({ gtd: 'warten', waiting }))).toBe(true)
+      expect(
+        isDecisionsFile(withItem({ gtd: 'warten', waiting: { ...waiting, followUpOn: null } })),
+      ).toBe(true)
+      expect(
+        validateDecisionsFile(withItem({ gtd: 'warten', waiting: { ...waiting, person: ' ' } })),
+      ).not.toEqual([])
+      expect(
+        validateDecisionsFile(withItem({ gtd: 'warten', waiting: { ...waiting, since: 'x' } })),
+      ).not.toEqual([])
+    })
+
+    it('Notizen und Termine brauchen die GTD-Felder nicht', () => {
+      const bare = { type: 'notiz', title: 'x', notes: '', categoryId: 'privat' }
+      const item = { ...bare, important: false, durationMin: null, when: null }
+      expect(isDecisionsFile(withItem(item))).toBe(true)
+      const noGtd = { ...item, plan: undefined, gtd: undefined, dueDate: undefined }
+      expect(isDecisionsFile({ decisions: [{ ...decisions.decisions[0], items: [noGtd] }] })).toBe(
+        true,
+      )
+    })
+
+    it('newProject: Form und "@neu" nur zusammen', () => {
+      const project = { title: 'Umzug', notes: 'Originaltext', categoryId: 'privat' }
+      const withProject = (newProject: unknown, patch: Record<string, unknown> = {}) => ({
+        decisions: [
+          {
+            ...decisions.decisions[0],
+            newProject,
+            items: [{ ...decisionItem, ...patch }],
+          },
+        ],
+      })
+      expect(isDecisionsFile(withProject(project, { projectId: '@neu' }))).toBe(true)
+      expect(isDecisionsFile(withProject(null))).toBe(true)
+      expect(validateDecisionsFile(withProject({ ...project, title: '' }))).not.toEqual([])
+      expect(validateDecisionsFile(withProject({ ...project, notes: 5 }))).not.toEqual([])
+      expect(validateDecisionsFile(withProject(null, { projectId: '@neu' })).join(' ')).toContain(
+        'newProject',
+      )
+      expect(
+        validateDecisionsFile(withProject({ ...project, categoryId: '@neu' })).join(' '),
+      ).toContain('newCategory')
+    })
   })
 })
 

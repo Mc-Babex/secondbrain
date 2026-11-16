@@ -10,6 +10,10 @@ Testsätzen (alt + neu) besteht.
   Felder (`gtd`, `dueDate`, `waiting`, `projectId`, `plan`, neue Projekte) und ein Beispielprojekt in den Testdaten nötig
 - vorhandene Testsätze in `docs/sortier-tests*.md` nur anpassen, wo sich das erwartete Ergebnis durch Phase 9 ändert
   (z. B. „wichtig“ ⇒ kein Termin mehr); jede Änderung in der Zusammenfassung nennen
+- `scripts/lauf/gtd.test.ts`: im Test „anwenden: lässt einen Eintrag aus, dessen Projekt inzwischen fehlt“ zusätzlich
+  prüfen, dass `inbox/<id>.json` erhalten bleibt (aus dem Review von 97)
+- `testspec.ts`: das wirkungslose Feld `existingItems.expectSchedule` entfernen; die in 97 vorläufig mit `plan: true`
+  versehenen Fälle in `sortierFixtures.ts`/`vergleich.satz2.test.ts` inhaltlich an Phase 9 anpassen
 - **Tabu:** `src/**`, übrige `scripts/`, `docs/CLAUDE-LAUF.md`, `docs/SPEC.md`.
 
 ## Vorgaben

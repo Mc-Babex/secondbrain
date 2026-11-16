@@ -81,7 +81,7 @@ async function remoteFile(r: Repos, path: string): Promise<unknown> {
 }
 
 describe('hasWork', () => {
-  it('Inbox ohne sortError, Inbox mit sortError, Aufgaben nach §8.4 e', async () => {
+  it('Inbox ohne sortError und Inbox mit sortError', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'sb-work-'))
     try {
       expect(await hasWork(dir)).toBe(false)
@@ -105,44 +105,23 @@ describe('hasWork', () => {
     }
   })
 
-  it('stimmt mit hasSortWork überein (gemeinsame Beispieldaten)', async () => {
-    const task = (over: Partial<Item>): Item => ({
-      ...validItem,
-      type: 'aufgabe',
-      status: 'offen',
-      important: true,
-      schedule: null,
-      ...over,
-    })
+  it('stimmt mit hasSortWork überein; vorhandene wichtige Aufgaben zählen nicht', async () => {
     const sortError = { message: 'm', at: 'x' }
+    const task = { ...validItem, important: true, schedule: null }
     const cases: { inbox: { id: string; sortError?: unknown }[]; items: Item[] }[] = [
       { inbox: [], items: [] },
       { inbox: [{ id: 'a' }], items: [] },
       { inbox: [{ id: 'a', sortError }], items: [] },
       { inbox: [{ id: 'a', sortError: null }], items: [] },
-      { inbox: [], items: [task({})] },
-      { inbox: [], items: [task({ important: false })] },
-      { inbox: [], items: [task({ status: 'erledigt' })] },
-      { inbox: [], items: [task({ type: 'termin' })] },
-      {
-        inbox: [],
-        items: [
-          task({
-            schedule: {
-              start: '2026-10-22T10:00:00+02:00',
-              durationMin: 30,
-              calendarEventId: null,
-            },
-          }),
-        ],
-      },
+      { inbox: [], items: [task] },
+      { inbox: [{ id: 'a', sortError }], items: [task] },
     ]
     for (const [index, c] of cases.entries()) {
       const dir = await mkdtemp(join(tmpdir(), 'sb-work-'))
       try {
         for (const [i, entry] of c.inbox.entries()) await putJson(dir, `inbox/${i}.json`, entry)
         for (const [i, item] of c.items.entries()) await putJson(dir, `items/${i}.json`, item)
-        expect(await hasWork(dir), `Fall ${index}`).toBe(hasSortWork(c.inbox, c.items))
+        expect(await hasWork(dir), `Fall ${index}`).toBe(hasSortWork(c.inbox))
       } finally {
         await rm(dir, { recursive: true, force: true })
       }

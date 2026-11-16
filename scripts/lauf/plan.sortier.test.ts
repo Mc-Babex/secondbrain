@@ -79,31 +79,12 @@ describe('Gesamttest gegen docs/sortier-tests.md', () => {
     ])
   })
 
-  it('plant die vorhandene wichtige Aufgabe ohne Termin zuletzt ein (8.4 e)', () => {
-    if (!result.ok) throw new Error('Plan fehlt')
-    const items = spec.existingItems ?? []
-    items.forEach((e, index) => {
-      if (!e.expectSchedule) return
-      const planned = result.plan.existing?.find(
-        (x) => x.itemId === testExistingItems(spec)[index].id,
-      )
-      expect(planned).toMatchObject({ title: e.title, ...e.expectSchedule })
-    })
-    expect(result.plan.existing).toHaveLength(1)
-  })
-
   it('events enthält genau die eingeplanten Items mit Ende und Beschreibung', () => {
     if (!result.ok) throw new Error('Plan fehlt')
     const scheduled = [
       ...result.plan.entries
         .flatMap((e) => e.items)
         .flatMap((i) => (i.schedule ? [{ id: i.id, title: i.title, ...i.schedule }] : [])),
-      ...(result.plan.existing ?? []).map((e) => ({
-        id: e.itemId,
-        title: e.title,
-        start: e.start,
-        durationMin: e.durationMin,
-      })),
     ]
     expect(result.plan.events.map((e) => e.itemId).sort()).toEqual(
       scheduled.map((i) => i.id).sort(),

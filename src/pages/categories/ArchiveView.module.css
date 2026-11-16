@@ -71,3 +71,34 @@
 .error {
   color: var(--color-danger);
 }
+
+.heading {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+}
+
+.entries {
+  margin-top: var(--space);
+}
+
+.project {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.steps {
+  margin: 0;
+  padding: 0 0 0 1.5rem;
+  list-style: none;
+  border-left: 2px solid var(--color-border);
+  margin-left: 0.75rem;
+}
+
+.step {
+  padding: 0.125rem 0 0.125rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}

@@ -9,16 +9,25 @@ interface CategoryViewProps {
   categories: Category[]
   /** Alle Einträge; die Ansicht filtert selbst. */
   items: readonly Item[]
+  /** Öffnet die Projektansicht (Aufgabe 94); ohne sie sind Projektkarten nicht antippbar. */
+  onOpenProject?: (id: string) => void
 }
 
 /** Inhalt einer geöffneten Ablage, je nach Art der Ablage. */
-export function CategoryView({ category, categories, items }: CategoryViewProps) {
+export function CategoryView({ category, categories, items, onOpenProject }: CategoryViewProps) {
   switch (category.kind) {
     case 'einkauf':
       return <ShoppingView category={category} categories={categories} items={items} />
     case 'archiv':
       return <ArchiveView category={category} categories={categories} items={items} />
     default:
-      return <NormalCategoryView category={category} categories={categories} items={items} />
+      return (
+        <NormalCategoryView
+          category={category}
+          categories={categories}
+          items={items}
+          onOpenProject={onOpenProject}
+        />
+      )
   }
 }

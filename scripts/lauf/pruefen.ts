@@ -34,6 +34,7 @@ export async function runPruefen(options: PruefenOptions): Promise<PruefenResult
     files.inbox.length +
     files.items.length +
     files.suggestions.length +
+    files.projects.length +
     [files.categories, files.settings, files.lastRun].filter((f) => f !== null).length
   return { exitCode: 0, lines: [`OK (${count} Dateien)`] }
 }

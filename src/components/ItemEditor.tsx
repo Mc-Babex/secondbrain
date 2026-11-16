@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { deleteItem, updateItem } from '../data/repository'
+import { useProjects } from '../data/hooks'
+import { assignItemToProject, deleteItem, updateItem } from '../data/repository'
 import type { Category, Item, ItemType } from '../data/types'
 import { loadGoogleScript, wasConnected } from '../google/auth'
 import {
@@ -15,6 +16,8 @@ import { formatDateTime, formatDuration } from '../lib/format'
 import { timeToMinutes, zonedToDate } from '../lib/planning'
 import { toIso, zonedParts } from '../lib/time'
 import { Dialog } from './Dialog'
+import { GtdFields } from './GtdFields'
+import { gtdFields, gtdFormFromItem, projectAfterCategoryChange, type GtdForm } from './gtdForm'
 import form from './Form.module.css'
 import styles from './ItemEditor.module.css'
 
@@ -62,10 +65,10 @@ function toStart(date: string, time: string): string | null {
 export function ItemEditor({ item, categories, onClose }: ItemEditorProps) {
   const [title, setTitle] = useState(item.title)
   const [notes, setNotes] = useState(item.notes)
-  const [important, setImportant] = useState(item.important)
-  const [duration, setDuration] = useState(
-    item.durationMin === null ? '' : String(item.durationMin),
-  )
+  const [gtdForm, setGtdForm] = useState<GtdForm>(() => gtdFormFromItem(item))
+  const projects = useProjects()
+  const { duration } = gtdForm
+  const patchGtd = (patch: Partial<GtdForm>): void => setGtdForm((prev) => ({ ...prev, ...patch }))
   const schedule = item.schedule
   const [when] = useState(() => (schedule ? dateAndTime(schedule.start) : null))
   const [date, setDate] = useState(when?.date ?? '')
@@ -150,6 +153,18 @@ export function ItemEditor({ item, categories, onClose }: ItemEditorProps) {
     }
   }
 
+  const changeCategory = (id: string): void => {
+    setCategoryId(id)
+    setGtdForm((prev) => ({
+      ...prev,
+      projectId: projectAfterCategoryChange(prev.projectId, id, projects),
+    }))
+  }
+
+  // Eine Notiz oder ein Termin ist kein Projekt-Schritt: die Zuordnung entfällt (gtd/waiting/dueDate bleiben).
+  const detachFromProject = type !== 'aufgabe' && typeof item.projectId === 'string'
+  const projectChanged = type === 'aufgabe' && gtdForm.projectId !== (item.projectId ?? '')
+
   const onSubmit = (event: FormEvent): void => {
     event.preventDefault()
     const newTitle = title.trim()
@@ -170,11 +185,16 @@ export function ItemEditor({ item, categories, onClose }: ItemEditorProps) {
       await updateItem(item.id, {
         title: newTitle,
         notes,
-        important,
+        important: gtdForm.important,
         ...(schedule ? {} : { durationMin: duration === '' ? null : Number(duration) }),
         categoryId,
         type,
+        ...(type === 'aufgabe' ? gtdFields(gtdForm) : {}),
+        ...(detachFromProject ? { projectId: null, projectOrder: undefined } : {}),
       })
+      if (projectChanged) {
+        await assignItemToProject(item.id, gtdForm.projectId === '' ? null : gtdForm.projectId)
+      }
       // Titel und Zeit gelten auch für den Google-Termin (SPEC §6.6); Fehler dort verhindern das Speichern nicht.
       const hints: string[] = []
       const renamed = newTitle === item.title ? null : await renameLinkedEvent(item, newTitle)
@@ -211,14 +231,16 @@ export function ItemEditor({ item, categories, onClose }: ItemEditorProps) {
             onChange={(e) => setNotes(e.target.value)}
           />
         </label>
-        <label className={form.check}>
-          <input
-            type="checkbox"
-            checked={important}
-            onChange={(e) => setImportant(e.target.checked)}
+        {type === 'aufgabe' && (
+          <GtdFields
+            value={gtdForm}
+            onChange={patchGtd}
+            categoryId={categoryId}
+            projects={projects}
+            scheduleStart={schedule?.start ?? null}
+            hideDuration={schedule !== null}
           />
-          Wichtig
-        </label>
+        )}
         {schedule && seriesCheck !== 'plain' ? (
           <fieldset className={styles.slot}>
             <legend>Termin</legend>
@@ -269,13 +291,13 @@ export function ItemEditor({ item, categories, onClose }: ItemEditorProps) {
               </select>
             </label>
           </fieldset>
-        ) : (
+        ) : type === 'aufgabe' ? null : (
           <label className={form.field}>
             Dauer
             <select
               className={form.input}
               value={duration}
-              onChange={(e) => setDuration(e.target.value)}
+              onChange={(e) => patchGtd({ duration: e.target.value })}
             >
               <option value="">Keine Angabe</option>
               {durationOptions(item.durationMin).map((m) => (
@@ -291,7 +313,7 @@ export function ItemEditor({ item, categories, onClose }: ItemEditorProps) {
           <select
             className={form.input}
             value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
+            onChange={(e) => changeCategory(e.target.value)}
           >
             {!knownCategory && <option value={item.categoryId}>Ohne Ablage</option>}
             {choices.map((c) => (

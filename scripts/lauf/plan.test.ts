@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { defaultCategories, defaultSettings } from '../../src/data/defaults'
-import type { Category, Item } from '../../src/data/types'
-import type { DecisionItem } from './files'
+import type { Category, Item, Project } from '../../src/data/types'
+import { validatePlanFile, type DecisionItem } from './files'
 import { validItem } from './fixtures'
 import { buildPlan, type BuildPlanInput } from './plan'
 
@@ -24,6 +24,10 @@ const decisionItem = (patch: Partial<DecisionItem> = {}): DecisionItem => ({
   important: false,
   durationMin: null,
   when: null,
+  plan: false,
+  gtd: 'naechster-schritt',
+  dueDate: null,
+  projectId: null,
   ...patch,
 })
 
@@ -266,27 +270,48 @@ describe('Items', () => {
 describe('Dauer', () => {
   const durationOf = (patch: Partial<DecisionItem>): number | null =>
     planOf({ decisions: single(patch) }).entries[0].items[0].durationMin
+  const blockOf = (patch: Partial<DecisionItem>): number | undefined =>
+    planOf({ decisions: single(patch) }).entries[0].items[0].schedule?.durationMin
 
-  it('rundet auf 15 Minuten, mindestens 15, höchstens Fensterlänge', () => {
-    expect(durationOf({ durationMin: 20 })).toBe(15)
-    expect(durationOf({ durationMin: 23 })).toBe(30)
-    expect(durationOf({ durationMin: 1 })).toBe(15)
-    expect(durationOf({ durationMin: 700 })).toBe(600)
+  it('übernimmt Dauern des Nutzers ab 1 Minute unverändert in den Eintrag', () => {
+    expect(durationOf({ durationMin: 2 })).toBe(2)
+    expect(durationOf({ durationMin: 20 })).toBe(20)
+    expect(durationOf({ durationMin: 700 })).toBe(700)
   })
 
-  it('nutzt Standardwerte je Fall', () => {
+  it('der Kalenderblock ist mindestens 15 Min., auf 15 aufgerundet, höchstens Fensterlänge', () => {
+    expect(blockOf({ plan: true, durationMin: 2 })).toBe(15)
+    expect(blockOf({ plan: true, durationMin: 20 })).toBe(30)
+    expect(blockOf({ plan: true, durationMin: 45 })).toBe(45)
+    expect(blockOf({ plan: true, durationMin: 700 })).toBe(600)
+  })
+
+  it('Dauer 2 mit plan ⇒ Eintrag 2 Min., Block und Termin 15 Min.', () => {
+    const plan = planOf({ decisions: single({ plan: true, durationMin: 2 }) })
+    expect(plan.entries[0].items[0].durationMin).toBe(2)
+    expect(plan.entries[0].items[0].schedule?.durationMin).toBe(15)
+    const event = plan.events[0]
+    expect((Date.parse(event.end) - Date.parse(event.start)) / 60_000).toBe(15)
+  })
+
+  it('nutzt Standardwerte nur bei Einplanung', () => {
     expect(durationOf({})).toBeNull()
-    expect(durationOf({ important: true })).toBe(30)
-    expect(durationOf({ when: { date: '2026-10-23', time: null } })).toBe(90)
+    expect(durationOf({ important: true })).toBeNull()
+    expect(durationOf({ plan: true })).toBe(30)
+    expect(durationOf({ type: 'termin', when: { date: '2026-10-23', time: null } })).toBe(90)
     expect(durationOf({ when: { date: '2026-10-23', time: '10:00' } })).toBe(60)
   })
 
-  it('begrenzt auch Standardwerte auf die Fensterlänge', () => {
+  it('begrenzt den Block auf die Fensterlänge', () => {
     const plan = planOf({
       settings: { ...defaultSettings(), planningWindow: { start: '09:00', end: '10:00' } },
-      decisions: single({ when: { date: '2026-10-23', time: null }, durationMin: 600 }),
+      decisions: single({
+        type: 'termin',
+        when: { date: '2026-10-23', time: null },
+        durationMin: 600,
+      }),
     })
-    expect(plan.entries[0].items[0].durationMin).toBe(60)
+    expect(plan.entries[0].items[0].schedule?.durationMin).toBe(60)
   })
 })
 
@@ -297,8 +322,8 @@ describe('Einplanen mit Pause', () => {
   })
   const thuBusy = busy('2026-10-22T09:00:00+02:00', '2026-10-22T11:00:00+02:00')
 
-  it('d) plant eine 2-h-Aufgabe nicht über die Pause (11:00 ohne, 13:00 mit Pause)', () => {
-    const decide = single({ important: true, durationMin: 120 })
+  it('c) plant eine 2-h-Aufgabe nicht über die Pause (11:00 ohne, 13:00 mit Pause)', () => {
+    const decide = single({ plan: true, durationMin: 120 })
     const events = { events: [thuBusy] }
     expect(startOf(planOf({ events, decisions: decide, settings: settings(null) }))).toBe(
       '2026-10-22T11:00:00+02:00',
@@ -308,7 +333,7 @@ describe('Einplanen mit Pause', () => {
 
   it('c) legt eine 15-Min.-Aufgabe, deren erster freier Slot in der Pause läge, dahinter', () => {
     const events = { events: [busy('2026-10-22T09:00:00+02:00', '2026-10-22T12:00:00+02:00')] }
-    const decide = single({ important: true, durationMin: 15 })
+    const decide = single({ plan: true, durationMin: 15 })
     expect(startOf(planOf({ events, decisions: decide, settings: settings(null) }))).toBe(
       '2026-10-22T12:00:00+02:00',
     )
@@ -322,7 +347,7 @@ describe('Einplanen mit Pause', () => {
         busy('2026-10-24T13:30:00+02:00', '2026-10-24T19:00:00+02:00'),
       ],
     }
-    const decide = single({ when: { date: '2026-10-24', time: null } })
+    const decide = single({ type: 'termin', when: { date: '2026-10-24', time: null } })
     const withPause = planOf({ events, decisions: decide })
     expect(withPause.entries[0].result).toBe('sortError')
     expect(startOf(planOf({ events, decisions: decide, settings: settings(null) }))).toBe(
@@ -337,35 +362,16 @@ describe('Einplanen mit Pause', () => {
     expect(startOf(plan)).toBe('2026-10-22T12:15:00+02:00')
   })
 
-  it('e) vorhandene wichtige Aufgabe läuft ebenfalls nicht in die Pause', () => {
-    const existing: Item = {
-      ...validItem,
-      id: '20261020-090000-e001',
-      type: 'aufgabe',
-      important: true,
-      durationMin: 120,
-      schedule: null,
-    }
-    const plan = planOf({
-      events: { events: [thuBusy] },
-      decisions: { decisions: [] },
-      inbox: [],
-      existingItems: [existing],
-      existingItemIds: [existing.id],
-    })
-    expect(plan.existing?.[0].start).toBe('2026-10-22T13:00:00+02:00')
-  })
-
   it('Überlänge (7 h) darf über die Pause laufen', () => {
     const plan = planOf({
-      decisions: single({ when: { date: '2026-10-27', time: null }, durationMin: 420 }),
+      decisions: single({ plan: true, when: { date: '2026-10-27', time: null }, durationMin: 420 }),
     })
     expect(startOf(plan)).toBe('2026-10-27T09:00:00+01:00')
   })
 
   it('ungültige Pause wirkt wie keine Pause', () => {
     const events = { events: [thuBusy] }
-    const decide = single({ important: true, durationMin: 120 })
+    const decide = single({ plan: true, durationMin: 120 })
     const bad = settings({ start: '13:00', end: '12:00' })
     expect(startOf(planOf({ events, decisions: decide, settings: bad }))).toBe(
       '2026-10-22T11:00:00+02:00',
@@ -411,7 +417,7 @@ describe('Einplanen', () => {
   it('b) ohne freien Block ⇒ sortError mit Meldung', () => {
     const plan = planOf({
       events: { events: [busy('2026-10-23T09:00:00', '2026-10-23T18:00:00')] },
-      decisions: single({ when: { date: '2026-10-23', time: null } }),
+      decisions: single({ plan: true, when: { date: '2026-10-23', time: null } }),
     })
     expect(plan.entries[0].message).toBe(
       'Am Fr 23.10. ist im Planungsfenster kein freier 90-Min-Block.',
@@ -422,8 +428,8 @@ describe('Einplanen', () => {
     const plan = planOf({
       inbox: [inboxEntry(ID1, 0), inboxEntry(ID2, 1)],
       decisions: decisions(
-        { id: ID1, list: [decisionItem({ when: { date: '2026-10-21', time: null } })] },
-        { id: ID2, list: [decisionItem({ when: { date: '2026-10-20', time: null } })] },
+        { id: ID1, list: [decisionItem({ plan: true, when: { date: '2026-10-21', time: null } })] },
+        { id: ID2, list: [decisionItem({ plan: true, when: { date: '2026-10-20', time: null } })] },
       ),
     })
     expect(startOf(plan)).toBe('2026-10-21T14:15:00+02:00')
@@ -442,7 +448,7 @@ describe('Einplanen', () => {
           busy('2026-10-23T07:30:00Z', '2026-10-23T08:00:00Z'),
         ],
       },
-      decisions: single({ when: { date: '2026-10-23', time: null }, durationMin: 30 }),
+      decisions: single({ plan: true, when: { date: '2026-10-23', time: null }, durationMin: 30 }),
     })
     expect(startOf(plan)).toBe('2026-10-23T10:00:00+02:00')
   })
@@ -458,11 +464,13 @@ describe('Einplanen', () => {
     const events = { events: [occurrence('2026-10-26'), occurrence('2026-10-28')] }
     const plan = planOf({
       events,
-      decisions: single({ when: { date: '2026-10-26', time: null } }),
+      decisions: single({ plan: true, when: { date: '2026-10-26', time: null } }),
     })
     // 90 Min. am Mo 26.10.: 09:00 ist durch das Vorkommen belegt, frei ab 10:30 (endet vor der Pause).
     expect(startOf(plan)).toBe('2026-10-26T10:30:00+01:00')
-    const without = planOf({ decisions: single({ when: { date: '2026-10-26', time: null } }) })
+    const without = planOf({
+      decisions: single({ plan: true, when: { date: '2026-10-26', time: null } }),
+    })
     expect(startOf(without)).toBe('2026-10-26T09:00:00+01:00')
   })
 
@@ -482,39 +490,39 @@ describe('Einplanen', () => {
     )
   })
 
-  it('c) wichtig mit 15 Min. startet am Tagesanfang (Fenster hat schon begonnen ⇒ morgen)', () => {
-    const plan = planOf({ decisions: single({ important: true, durationMin: 15 }) })
+  it('c) plan mit 15 Min. startet am Tagesanfang (Fenster hat schon begonnen ⇒ morgen)', () => {
+    const plan = planOf({ decisions: single({ plan: true, durationMin: 15 }) })
     expect(startOf(plan)).toBe('2026-10-22T09:00:00+02:00')
   })
 
-  it('d) wichtig startet nie am laufenden Tag, sondern am Tagesanfang, und weicht Terminen aus', () => {
+  it('c) plan startet nie am laufenden Tag, sondern am Tagesanfang, und weicht Terminen aus', () => {
     const plan = planOf({
       events: { events: [busy('2026-10-22T09:00:00+02:00', '2026-10-22T10:00:00+02:00')] },
-      decisions: single({ important: true, durationMin: 60 }),
+      decisions: single({ plan: true, durationMin: 60 }),
     })
     expect(startOf(plan)).toBe('2026-10-22T10:00:00+02:00')
   })
 
-  it('d) Lauf um 14:05 ⇒ wichtige 30-Min.-Aufgabe morgen ab Fensterbeginn, nach den c-Einträgen', () => {
+  it('c) Lauf um 14:05 ⇒ 30-Min.-Aufgabe mit plan morgen ab Fensterbeginn, nach den c-Einträgen', () => {
     const plan = planOf({
       inbox: [inboxEntry(ID1, 0), inboxEntry(ID2, 1)],
       decisions: decisions(
-        { id: ID1, list: [decisionItem({ important: true, durationMin: 30 })] },
-        { id: ID2, list: [decisionItem({ important: true, durationMin: 15 })] },
+        { id: ID1, list: [decisionItem({ plan: true, durationMin: 30 })] },
+        { id: ID2, list: [decisionItem({ plan: true, durationMin: 15 })] },
       ),
     })
     expect(startOf(plan, 1)).toBe('2026-10-22T09:00:00+02:00')
     expect(startOf(plan, 0)).toBe('2026-10-22T09:15:00+02:00')
   })
 
-  it('c und d: Lauf um 07:00 (vor Fensterbeginn) ⇒ heute ab 09:00, ohne Überschneidung', () => {
+  it('c) Lauf um 07:00 (vor Fensterbeginn) ⇒ heute ab 09:00, ohne Überschneidung', () => {
     const plan = planOf({
       now: new Date('2026-10-21T07:00:00+02:00'),
       inbox: [inboxEntry(ID1, 0), inboxEntry(ID2, 1), inboxEntry(ID3, 2)],
       decisions: decisions(
-        { id: ID1, list: [decisionItem({ important: true, durationMin: 30 })] },
-        { id: ID2, list: [decisionItem({ important: true, durationMin: 15 })] },
-        { id: ID3, list: [decisionItem({ important: true, durationMin: 15 })] },
+        { id: ID1, list: [decisionItem({ plan: true, durationMin: 30 })] },
+        { id: ID2, list: [decisionItem({ plan: true, durationMin: 15 })] },
+        { id: ID3, list: [decisionItem({ plan: true, durationMin: 15 })] },
       ),
     })
     expect(plan.entries.map((_, i) => startOf(plan, i))).toEqual([
@@ -524,10 +532,10 @@ describe('Einplanen', () => {
     ])
   })
 
-  it('c/d ohne Slot in 14 Tagen ⇒ ohne schedule und Eintrag in errors', () => {
+  it('c) ohne Slot in 14 Tagen ⇒ ohne schedule und Eintrag in errors', () => {
     const plan = planOf({
       events: { events: [busy('2026-10-21T00:00:00+02:00', '2026-11-10T00:00:00+01:00')] },
-      decisions: single({ important: true }),
+      decisions: single({ plan: true }),
     })
     expect(plan.entries[0].result).toBe('ok')
     expect(plan.entries[0].items[0].schedule).toBeNull()
@@ -540,8 +548,8 @@ describe('Einplanen', () => {
     const plan = planOf({
       inbox: [inboxEntry(ID1, 0), inboxEntry(ID2, 1), inboxEntry(ID3, 2)],
       decisions: decisions(
-        { id: ID1, list: [decisionItem({ important: true, durationMin: 15 })] },
-        { id: ID2, list: [decisionItem({ when: { date: '2026-10-22', time: null } })] },
+        { id: ID1, list: [decisionItem({ plan: true, durationMin: 15 })] },
+        { id: ID2, list: [decisionItem({ plan: true, when: { date: '2026-10-22', time: null } })] },
         { id: ID3, list: [decisionItem({ when: { date: '2026-10-22', time: '09:00' } })] },
       ),
     })
@@ -563,7 +571,7 @@ describe('Einplanen', () => {
             decisionItem({ when: { date: '2026-10-21', time: '10:00' } }),
           ],
         },
-        { id: ID2, list: [decisionItem({ when: { date: '2026-10-22', time: null } })] },
+        { id: ID2, list: [decisionItem({ plan: true, when: { date: '2026-10-22', time: null } })] },
       ),
     })
     expect(plan.entries[0].result).toBe('sortError')
@@ -628,5 +636,233 @@ describe('Einkaufsliste: gleiche Artikel (SPEC 3.9)', () => {
       existingItems: [existing('Knoblauch', OLD)],
     })
     expect(plan.entries[0].items).toHaveLength(1)
+  })
+})
+
+describe('Phase 9: Fokus, Einplanen, Status, Fälligkeit', () => {
+  const only = (patch: Partial<DecisionItem>) => planOf({ decisions: single(patch) })
+
+  it('wichtig plant nichts: Fokus ohne Datum und ohne plan ⇒ kein schedule, kein Termin', () => {
+    const plan = only({ important: true })
+    expect(plan.entries[0].items[0]).toMatchObject({ important: true, schedule: null })
+    expect(plan.events).toEqual([])
+  })
+
+  it('plan: true mit Datum ohne Uhrzeit ⇒ Block an diesem Tag', () => {
+    const plan = only({ plan: true, when: { date: '2026-10-22', time: null } })
+    expect(startOf(plan)).toBe('2026-10-22T09:00:00+02:00')
+    expect(plan.events).toHaveLength(1)
+  })
+
+  it('plan: true ohne Datum ⇒ Block ab Tagesanfang', () => {
+    const plan = only({ plan: true, durationMin: 45 })
+    expect(startOf(plan)).toBe('2026-10-22T09:00:00+02:00')
+    expect(plan.events).toHaveLength(1)
+  })
+
+  it('Aufgabe mit Datum ohne Uhrzeit und ohne plan ⇒ kein Termin, dueDate = Datum', () => {
+    const plan = only({ when: { date: '2026-10-23', time: null } })
+    expect(plan.entries[0].items[0]).toMatchObject({ schedule: null, dueDate: '2026-10-23' })
+    expect(plan.events).toEqual([])
+  })
+
+  it('eine von Claude gesetzte dueDate bleibt erhalten', () => {
+    const plan = only({ when: { date: '2026-10-23', time: null }, dueDate: '2026-10-25' })
+    expect(plan.entries[0].items[0].dueDate).toBe('2026-10-25')
+  })
+
+  it('Aufgabe mit Uhrzeit ⇒ Termin wie bisher', () => {
+    const plan = only({ when: { date: '2026-10-22', time: '10:00' } })
+    expect(startOf(plan)).toBe('2026-10-22T10:00:00+02:00')
+    expect(plan.entries[0].items[0].dueDate).toBeNull()
+  })
+
+  it('Termin mit Datum ohne Uhrzeit ⇒ Block wie bisher', () => {
+    const plan = only({ type: 'termin', when: { date: '2026-10-22', time: null } })
+    expect(startOf(plan)).toBe('2026-10-22T09:00:00+02:00')
+  })
+
+  it('Notiz mit Datum ohne Uhrzeit und ohne plan ⇒ kein Termin', () => {
+    const plan = only({ type: 'notiz', when: { date: '2026-10-22', time: null } })
+    expect(plan.entries[0].items[0].schedule).toBeNull()
+    expect(plan.events).toEqual([])
+  })
+
+  it('gtd "warten" ohne waiting ⇒ Fehlermeldung; mit waiting ⇒ Eintrag korrekt', () => {
+    expect(errorsOf({ decisions: single({ gtd: 'warten' }) }).join('\n')).toMatch(/"waiting"/)
+    const waiting = { person: 'Frau Becker', since: '2026-10-21', followUpOn: null }
+    const item = only({ gtd: 'warten', waiting }).entries[0].items[0]
+    expect(item).toMatchObject({ gtd: 'warten', waiting, v: 2 })
+  })
+
+  it('Aufgaben tragen v 2 und die GTD-Felder; Notizen nur v 2', () => {
+    expect(only({}).entries[0].items[0]).toMatchObject({
+      gtd: 'naechster-schritt',
+      dueDate: null,
+      waiting: null,
+      projectId: null,
+      v: 2,
+    })
+    const note = only({ type: 'notiz' }).entries[0].items[0]
+    expect(note).not.toHaveProperty('gtd')
+    expect(note.v).toBe(2)
+  })
+
+  it('verlangt bei Aufgaben gtd und plan', () => {
+    const bare: Record<string, unknown> = { ...decisionItem() }
+    delete bare.plan
+    delete bare.gtd
+    const file = { decisions: [{ inboxId: ID1, newCategory: null, items: [bare] }] }
+    const errors = errorsOf({ decisions: file }).join('\n')
+    expect(errors).toMatch(/Feld "plan" fehlt/)
+    expect(errors).toMatch(/Feld "gtd" fehlt/)
+  })
+})
+
+describe('Phase 9: Projekte', () => {
+  const PROJECT_ID = '20261101-090000-p001'
+  const project = (patch: Partial<Project> = {}): Project => ({
+    id: PROJECT_ID,
+    title: 'Analysis 1',
+    notes: '',
+    categoryId: 'arbeit',
+    status: 'aktiv',
+    series: [],
+    createdAt: '2026-11-01T09:00:00+01:00',
+    updatedAt: '2026-11-01T09:00:00+01:00',
+    completedAt: null,
+    v: 2,
+    ...patch,
+  })
+  const step = (n: number): Item => ({
+    ...validItem,
+    id: `20261101-09000${n}-s00${n}`,
+    schedule: null,
+    projectId: PROJECT_ID,
+    projectOrder: n,
+  })
+  const withProject = (patch: Partial<DecisionItem> = {}) =>
+    planOf({
+      projects: [project()],
+      existingItems: [step(1), step(2)],
+      decisions: single({ projectId: PROJECT_ID, ...patch }),
+    })
+
+  it('Schritt zu vorhandenem Projekt ⇒ projectId, projectOrder hinten, Ablage des Projekts', () => {
+    const item = withProject().entries[0].items[0]
+    expect(item).toMatchObject({ projectId: PROJECT_ID, projectOrder: 3, categoryId: 'arbeit' })
+  })
+
+  it('zwei Schritte im selben Lauf ⇒ fortlaufende Reihenfolge der Entscheidungen', () => {
+    const plan = planOf({
+      projects: [project()],
+      existingItems: [step(1), step(2)],
+      inbox: [inboxEntry(ID1, 0), inboxEntry(ID2, 1)],
+      decisions: decisions(
+        { id: ID2, list: [decisionItem({ projectId: PROJECT_ID })] },
+        { id: ID1, list: [decisionItem({ projectId: PROJECT_ID })] },
+      ),
+    })
+    expect(plan.entries[0].items[0].projectOrder).toBe(4)
+    expect(plan.entries[1].items[0].projectOrder).toBe(3)
+  })
+
+  it('Projekt ohne Schritte beginnt bei 1', () => {
+    const plan = planOf({ projects: [project()], decisions: single({ projectId: PROJECT_ID }) })
+    expect(plan.entries[0].items[0].projectOrder).toBe(1)
+  })
+
+  it('meldet ein unbekanntes oder abgeschlossenes Projekt', () => {
+    expect(errorsOf({ decisions: single({ projectId: PROJECT_ID }) }).join()).toMatch(
+      /Projekt „.*“ gibt es nicht/,
+    )
+    const done = project({ status: 'erledigt' })
+    const errors = errorsOf({ projects: [done], decisions: single({ projectId: PROJECT_ID }) })
+    expect(errors).toHaveLength(1)
+  })
+
+  it('newProject ⇒ Projekt mit Originaltext, erster Schritt verknüpft', () => {
+    const plan = planOf({
+      decisions: {
+        decisions: [
+          {
+            inboxId: ID1,
+            newCategory: null,
+            newProject: {
+              title: 'Umzug',
+              notes: 'Projekt Umzug: Kisten besorgen',
+              categoryId: 'privat',
+            },
+            items: [decisionItem({ title: 'Kisten besorgen', projectId: '@neu' })],
+          },
+        ],
+      },
+    })
+    const entry = plan.entries[0]
+    expect(entry.newProject).toMatchObject({
+      title: 'Umzug',
+      notes: 'Projekt Umzug: Kisten besorgen',
+      categoryId: 'privat',
+      status: 'aktiv',
+      series: [],
+      completedAt: null,
+      v: 2,
+    })
+    expect(entry.items[0]).toMatchObject({ projectId: entry.newProject?.id, projectOrder: 1 })
+    expect(validatePlanFile(plan)).toEqual([])
+  })
+
+  it('"@neu" ohne newProject ⇒ Fehlermeldung', () => {
+    expect(errorsOf({ decisions: single({ projectId: '@neu' }) }).join()).toMatch(
+      /projectId "@neu" verlangt eine newProject/,
+    )
+  })
+
+  it('newProject ohne Schritt "@neu" ⇒ Fehlermeldung', () => {
+    const decisionsFile = {
+      decisions: [
+        {
+          inboxId: ID1,
+          newCategory: null,
+          newProject: { title: 'Umzug', notes: '', categoryId: 'privat' },
+          items: [decisionItem()],
+        },
+      ],
+    }
+    expect(errorsOf({ decisions: decisionsFile }).join()).toMatch(/kein Eintrag nutzt projectId/)
+  })
+
+  it('Projekt in neuer Ablage (categoryId "@neu")', () => {
+    const plan = planOf({
+      decisions: {
+        decisions: [
+          {
+            inboxId: ID1,
+            newCategory: { name: 'Fitness', description: '' },
+            newProject: { title: 'Marathon', notes: 'x', categoryId: '@neu' },
+            items: [decisionItem({ categoryId: '@neu', projectId: '@neu' })],
+          },
+        ],
+      },
+    })
+    expect(plan.entries[0].newProject?.categoryId).toBe('fitness')
+    expect(plan.entries[0].items[0].categoryId).toBe('fitness')
+  })
+
+  it('Projekt nie in Einkauf oder Archiv; Notizen sind keine Schritte', () => {
+    const decisionsFile = (categoryId: string) => ({
+      decisions: [
+        {
+          inboxId: ID1,
+          newCategory: null,
+          newProject: { title: 'P', notes: '', categoryId },
+          items: [decisionItem({ projectId: '@neu' })],
+        },
+      ],
+    })
+    expect(errorsOf({ decisions: decisionsFile('einkauf') }).join()).toMatch(/Projekt darf nicht/)
+    expect(errorsOf({ decisions: decisionsFile('erledigt') }).join()).toMatch(/Projekt darf nicht/)
+    const note = single({ type: 'notiz', projectId: PROJECT_ID })
+    expect(errorsOf({ projects: [project()], decisions: note }).join()).toMatch(/keine Aufgabe/)
   })
 })

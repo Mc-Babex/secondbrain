@@ -78,10 +78,14 @@ export async function getOutbox(): Promise<OutboxEntry[]> {
 
 // --- Lokale Schreibaktionen (mit Outbox, atomar) ---------------------------
 
+/** Zuletzt vergebener Zeitstempel (ms): `queuedAt` steigt streng, damit die Outbox-Reihenfolge der Schreibreihenfolge folgt. */
+let lastQueuedMs = 0
+
 function nextQueuedAt(previous: string | undefined): string {
-  let ms = Date.now()
+  let ms = Math.max(Date.now(), lastQueuedMs + 1)
   let stamp = new Date(ms).toISOString()
   while (stamp === previous) stamp = new Date(++ms).toISOString()
+  lastQueuedMs = ms
   return stamp
 }
 

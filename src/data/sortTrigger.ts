@@ -14,7 +14,7 @@ import {
 import { dispatchSort, getFile, GithubError, loadGithubConfig, type GithubConfig } from './github'
 import { getOutbox, listFiles } from './localStore'
 import { clearPendingSort, loadPendingSort, PENDING_MAX_MS, savePendingSort } from './pendingSort'
-import { getSettings, listItems } from './repository'
+import { getSettings } from './repository'
 import { syncNow } from './sync'
 import { getDataFormatProblem } from './syncStatus'
 import {
@@ -47,7 +47,7 @@ const MSG_GENERIC = 'Das hat nicht geklappt. Bitte versuche es erneut.'
 /** Rohdaten statt normalisierter Einträge: ein ungültiges `sortError` zählt für den Lauf als vorhanden. */
 async function hasLocalSortWork(): Promise<boolean> {
   const inbox = (await listFiles('inbox/')).map((file) => file.data).filter(isInboxEntry)
-  return hasSortWork(inbox, await listItems())
+  return hasSortWork(inbox)
 }
 
 async function readJson(config: GithubConfig, path: string): Promise<unknown> {

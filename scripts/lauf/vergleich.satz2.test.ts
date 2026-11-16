@@ -22,6 +22,10 @@ const item = (patch: Partial<DecisionItem> & Pick<DecisionItem, 'title'>): Decis
   important: false,
   durationMin: null,
   when: null,
+  plan: false,
+  gtd: 'naechster-schritt',
+  dueDate: null,
+  projectId: null,
   ...patch,
 })
 
@@ -57,8 +61,8 @@ const IDEAL: Record<number, DecisionItem> = {
       'Bei der Hausverwaltung wegen der kaputten Klingel im dritten Stock nachfragen und einen Reparaturtermin vereinbaren',
   }),
   8: item({ title: 'Fahrradreifen aufpumpen' }),
-  9: item({ title: 'Kleiderschrank ausmisten', important: true, durationMin: 120 }),
-  10: item({ title: 'Auto waschen', when: { date: '2026-10-24', time: null } }),
+  9: item({ title: 'Kleiderschrank ausmisten', important: true, plan: true, durationMin: 120 }),
+  10: item({ title: 'Auto waschen', plan: true, when: { date: '2026-10-24', time: null } }),
   11: item({
     title: 'Mittagessen mit Anna',
     type: 'termin',
@@ -67,15 +71,17 @@ const IDEAL: Record<number, DecisionItem> = {
   12: item({
     title: 'Paket abholen',
     durationMin: 15,
+    plan: true,
     when: { date: '2026-10-23', time: null },
   }),
   13: item({
     title: 'Konzept für das Seminar schreiben',
     categoryId: 'studium',
     durationMin: 420,
+    plan: true,
     when: { date: '2026-10-27', time: null },
   }),
-  14: item({ title: 'Wäsche waschen', when: { date: '2026-10-26', time: null } }),
+  14: item({ title: 'Wäsche waschen', plan: true, when: { date: '2026-10-26', time: null } }),
 }
 
 const ideal = (): DecisionsFile => ({

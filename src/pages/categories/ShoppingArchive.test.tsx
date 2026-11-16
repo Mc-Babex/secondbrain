@@ -172,7 +172,7 @@ describe('Erledigt', () => {
     })
     render(<CategoriesPage />)
     await openCategory(user, /^Erledigt/)
-    await user.click(await screen.findByRole('button', { name: 'Wiederherstellen' }))
+    await user.click(await screen.findByRole('button', { name: 'Bericht wiederherstellen' }))
     expect(await screen.findByRole('status')).toHaveTextContent('Zurück in Arbeit')
     expect(screen.queryByText('Bericht')).not.toBeInTheDocument()
     const item = (await listItems()).find((i) => i.title === 'Bericht')

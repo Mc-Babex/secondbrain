@@ -17,6 +17,8 @@ export interface DataRepoFiles {
   inbox: RepoFile[]
   items: RepoFile[]
   suggestions: RepoFile[]
+  /** `projects/` (SPEC §3.12, Phase 9). */
+  projects: RepoFile[]
   categories: RepoFile | null
   settings: RepoFile | null
   lastRun: RepoFile | null
@@ -30,6 +32,8 @@ export const ITEM_TYPES: readonly string[] = ['aufgabe', 'notiz', 'termin']
 const ITEM_STATUS: readonly string[] = ['offen', 'erledigt']
 const SOURCES: readonly string[] = ['sprache', 'text']
 const CATEGORY_KINDS: readonly string[] = ['normal', 'einkauf', 'archiv']
+export const GTD_STATUSES: readonly string[] = ['naechster-schritt', 'warten', 'irgendwann']
+const PROJECT_STATUS: readonly string[] = ['aktiv', 'erledigt']
 
 export const isId = (v: unknown): v is string => typeof v === 'string' && ID_PATTERN.test(v)
 export const isNonEmptyString = (v: unknown): v is string =>
@@ -86,6 +90,19 @@ export const TIMESTAMP_HINT = 'Zeitstempel mit Offset, z. B. 2026-10-17T09:30:00
 const DURATION_HINT = 'null oder ganze Zahl ≥ 1'
 const isDuration = (x: unknown): boolean => x === null || (isInt(x) && x >= 1)
 
+const isDateOrNull = (x: unknown): boolean => x === null || isDate(x)
+const isFiniteNumber = (x: unknown): boolean => typeof x === 'number' && Number.isFinite(x)
+
+/** `waiting` laut SPEC §3.3: `{ person, since, followUpOn }` (Datumsangaben `YYYY-MM-DD`). */
+export function isWaiting(x: unknown): boolean {
+  return (
+    isObj(x) &&
+    isString(x.person) &&
+    isDate(x.since) &&
+    (x.followUpOn === undefined || isDateOrNull(x.followUpOn))
+  )
+}
+
 function checkId(messages: Messages, obj: Obj): void {
   checkField(messages, obj, 'id', isId, 'ID im Format YYYYMMDD-HHmmss-xxxx')
 }
@@ -137,6 +154,61 @@ export function validateItemFields(v: unknown, categoryIds: ReadonlySet<string> 
     (x) => x === null || isTimestamp(x),
     `null oder ${TIMESTAMP_HINT}`,
   )
+  checkGtdFields(m, v)
+  return m
+}
+
+/** Optionale GTD-Felder (SPEC §3.3, Phase 9); fehlen sie, ist das gültig. */
+function checkGtdFields(m: Messages, v: Obj): void {
+  checkOptional(
+    m,
+    v,
+    'gtd',
+    (x) => isOneOf(GTD_STATUSES, x),
+    '"naechster-schritt", "warten" oder "irgendwann"',
+  )
+  checkOptional(m, v, 'dueDate', isDateOrNull, 'null oder Datum YYYY-MM-DD')
+  checkOptional(
+    m,
+    v,
+    'waiting',
+    (x) => x === null || isWaiting(x),
+    'null oder { person (Text), since (YYYY-MM-DD), followUpOn (YYYY-MM-DD oder null) }',
+  )
+  checkOptional(m, v, 'projectId', (x) => x === null || isString(x), 'null oder Projekt-ID')
+  checkOptional(m, v, 'projectOrder', isFiniteNumber, 'Zahl')
+  checkOptional(m, v, 'seriesId', isString, 'Text')
+  checkOptional(m, v, 'seriesNumber', isFiniteNumber, 'Zahl')
+  checkOptional(m, v, 'archivedWithProject', isBoolean, 'true oder false')
+  checkOptional(m, v, 'v', isFiniteNumber, 'Zahl')
+}
+
+/** Prüft ein Projekt (SPEC §3.12); unbekannte Felder und unbekannte Serien-Objekte sind erlaubt. */
+export function validateProjectFields(
+  v: unknown,
+  categoryIds: ReadonlySet<string> | null,
+): Messages {
+  if (!isObj(v)) return ['Inhalt ist kein JSON-Objekt.']
+  const m: Messages = []
+  checkId(m, v)
+  checkField(m, v, 'title', isNonEmptyString, 'nicht leerer Text')
+  checkOptional(m, v, 'notes', isString, 'Text')
+  checkField(m, v, 'categoryId', isNonEmptyString, 'Ablagen-ID')
+  if (categoryIds && isNonEmptyString(v.categoryId) && !categoryIds.has(v.categoryId)) {
+    m.push(`Ablage "${v.categoryId}" existiert nicht in categories.json.`)
+  }
+  checkField(m, v, 'status', (x) => isOneOf(PROJECT_STATUS, x), '"aktiv" oder "erledigt"')
+  checkOptional(m, v, 'series', (x) => Array.isArray(x) && x.every(isObj), 'Liste von Objekten')
+  checkField(m, v, 'createdAt', isTimestamp, TIMESTAMP_HINT)
+  checkField(m, v, 'updatedAt', isTimestamp, TIMESTAMP_HINT)
+  checkOptional(
+    m,
+    v,
+    'completedAt',
+    (x) => x === null || isTimestamp(x),
+    `null oder ${TIMESTAMP_HINT}`,
+  )
+  checkOptional(m, v, 'v', isFiniteNumber, 'Zahl')
   return m
 }
 
@@ -227,6 +299,7 @@ export function validateLastRunFile(v: unknown): Messages {
   checkField(m, v, 'finishedAt', isTimestamp, TIMESTAMP_HINT)
   checkField(m, v, 'processed', (x) => isInt(x) && x >= 0, 'ganze Zahl ≥ 0')
   checkField(m, v, 'itemIds', (x) => Array.isArray(x) && x.every(isId), 'Liste von IDs')
+  checkOptional(m, v, 'projectIds', (x) => Array.isArray(x) && x.every(isId), 'Liste von IDs')
   checkField(m, v, 'skipped', (x) => isMessageList(x, false), 'Liste von { inboxId (ID), message }')
   checkField(
     m,
@@ -331,5 +404,6 @@ export function validateDataRepo(files: DataRepoFiles): ValidationError[] {
   for (const f of files.suggestions) {
     checkNamedFile(f, (d) => validateSuggestionFields(d, ids), errors)
   }
+  for (const f of files.projects) checkNamedFile(f, (d) => validateProjectFields(d, ids), errors)
   return errors
 }

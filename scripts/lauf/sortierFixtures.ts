@@ -9,6 +9,10 @@ const item = (patch: Partial<DecisionItem> & Pick<DecisionItem, 'title'>): Decis
   important: false,
   durationMin: null,
   when: null,
+  plan: false,
+  gtd: 'naechster-schritt',
+  dueDate: null,
+  projectId: null,
   ...patch,
 })
 const shopping = (title: string): DecisionItem =>
@@ -36,12 +40,13 @@ const ideal: Record<number, DecisionItem[]> = {
       when: { date: '2026-10-22', time: '14:30' },
     }),
   ],
-  6: [item({ title: 'Krankenkasse anrufen', important: true, durationMin: 15 })],
+  6: [item({ title: 'Krankenkasse anrufen', important: true, plan: true, durationMin: 15 })],
   7: [
     item({
       title: 'Bewerbung für Werkstudentenstelle überarbeiten',
       categoryId: 'arbeit',
       important: true,
+      plan: true,
       durationMin: 120,
     }),
   ],
@@ -50,6 +55,7 @@ const ideal: Record<number, DecisionItem[]> = {
       title: 'Hausarbeit Statistik Kapitel 3 schreiben',
       categoryId: 'studium',
       important: true,
+      plan: true,
       durationMin: 180,
     }),
   ],
@@ -63,9 +69,13 @@ const ideal: Record<number, DecisionItem[]> = {
   ],
   10: [item({ title: 'Buchtipp: Der Schwarm', type: 'notiz', notes: 'von Lena' })],
   11: [
-    item({ title: 'Steuerberater-Unterlagen abgeben', when: { date: '2026-10-23', time: null } }),
+    item({
+      title: 'Steuerberater-Unterlagen abgeben',
+      plan: true,
+      when: { date: '2026-10-23', time: null },
+    }),
   ],
-  12: [item({ title: 'Zimmer streichen', when: { date: '2026-10-26', time: null } })],
+  12: [item({ title: 'Zimmer streichen', plan: true, when: { date: '2026-10-26', time: null } })],
   13: [item({ title: 'Laufschuhe recherchieren', categoryId: '@neu' })],
   14: [
     item({
@@ -77,13 +87,14 @@ const ideal: Record<number, DecisionItem[]> = {
   ],
   15: [item({ title: 'Spielanmeldung für November ausfüllen', categoryId: 'verein' })],
   16: [shopping('Klopapier')],
-  17: [item({ title: 'Mama zurückrufen', important: true, durationMin: 15 })],
+  17: [item({ title: 'Mama zurückrufen', important: true, plan: true, durationMin: 15 })],
   18: [item({ title: 'Gitarre üben' })],
   19: [
     item({
       title: 'Mietvertrag kündigen',
       notes: 'Brief schreiben',
       important: true,
+      plan: true,
       durationMin: 30,
     }),
   ],
@@ -98,6 +109,7 @@ const ideal: Record<number, DecisionItem[]> = {
     item({
       title: 'Abgabe Laborbericht',
       categoryId: 'studium',
+      plan: true,
       when: { date: '2026-10-30', time: null },
     }),
   ],
@@ -112,10 +124,11 @@ const ideal: Record<number, DecisionItem[]> = {
       title: 'Mail an den Vermieter schreiben',
       notes: 'wegen Heizung',
       important: true,
+      plan: true,
       durationMin: 15,
     }),
   ],
-  29: [item({ title: 'Stromrechnung bezahlen', important: true, durationMin: 15 })],
+  29: [item({ title: 'Stromrechnung bezahlen', important: true, plan: true, durationMin: 15 })],
 }
 
 /** Entscheidungsdatei, wie Claude sie nach SPEC §8.3 schreiben sollte. */

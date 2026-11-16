@@ -82,12 +82,13 @@ async function readFolder(dataDir: string, folder: string): Promise<RepoFile[]> 
   return files
 }
 
-/** Liest inbox/, items/, suggestions/, categories.json, settings.json und runs/last.json roh. */
+/** Liest inbox/, items/, suggestions/, projects/, categories.json, settings.json und runs/last.json roh. */
 export async function readDataRepo(dataDir: string): Promise<DataRepoFiles> {
   return {
     inbox: await readFolder(dataDir, 'inbox'),
     items: await readFolder(dataDir, 'items'),
     suggestions: await readFolder(dataDir, 'suggestions'),
+    projects: await readFolder(dataDir, 'projects'),
     categories: await readRepoFile(dataDir, 'categories.json'),
     settings: await readRepoFile(dataDir, 'settings.json'),
     lastRun: await readRepoFile(dataDir, 'runs/last.json'),

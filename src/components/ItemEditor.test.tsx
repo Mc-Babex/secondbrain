@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { defaultCategories } from '../data/defaults'
 import { resetDb } from '../data/localStore'
-import { createItem, listItems } from '../data/repository'
+import { createItem, createProject, listItems } from '../data/repository'
 import type { Item } from '../data/types'
 import { GoogleError } from '../google/types'
 import { ItemEditor } from './ItemEditor'
@@ -67,7 +67,7 @@ describe('ItemEditor', () => {
     await user.clear(title)
     await user.type(title, 'Neu')
     await user.type(screen.getByLabelText('Notizen'), 'Hinweis')
-    await user.click(screen.getByLabelText('Wichtig'))
+    await user.click(screen.getByRole('button', { name: /Fokus/ }))
     await user.selectOptions(screen.getByLabelText('Dauer'), '45')
     await user.selectOptions(screen.getByLabelText('Ablage'), 'arbeit')
     await user.selectOptions(screen.getByLabelText('Art'), 'notiz')
@@ -433,5 +433,159 @@ describe('ItemEditor – Eintrag hängt an einer Serie', () => {
       screen.getByText(/Der Google-Termin wird nur gelöscht, wenn er keine Serie ist/),
     ).toBeInTheDocument()
     resolve(SERIES_EVENT)
+  })
+})
+
+describe('ItemEditor – GTD-Felder', () => {
+  const open = (item: Item) => {
+    const onClose = vi.fn()
+    const view = render(<ItemEditor item={item} categories={categories} onClose={onClose} />)
+    return { onClose, view }
+  }
+  const save = async (user: ReturnType<typeof userEvent.setup>, onClose: () => void) => {
+    await user.click(screen.getByRole('button', { name: 'Speichern' }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+  }
+
+  it('speichert Status, Fokus, fällig bis, Dauer 2 Min., Projekt und Warte-auf – und zeigt sie wieder an', async () => {
+    const user = userEvent.setup()
+    const project = await createProject({ title: 'Umzug', categoryId: 'privat' })
+    const item = await createItem({ type: 'aufgabe', title: 'Alt', categoryId: 'privat' })
+    const first = open(item)
+    await user.click(screen.getByRole('radio', { name: 'Warte auf' }))
+    await user.type(screen.getByLabelText('Person / Was'), 'Frau Becker')
+    fireEvent.change(screen.getByLabelText('Seit'), { target: { value: '2026-11-01' } })
+    fireEvent.change(screen.getByLabelText('Nachhaken am'), { target: { value: '2026-11-20' } })
+    await user.click(screen.getByRole('button', { name: /Fokus/ }))
+    fireEvent.change(screen.getByLabelText('Fällig bis'), { target: { value: '2026-12-24' } })
+    await user.selectOptions(screen.getByLabelText('Dauer'), '2')
+    expect(screen.getByText('⚡ 2-Minuten-Regel: gleich erledigen')).toBeInTheDocument()
+    await screen.findByRole('option', { name: 'Umzug' })
+    await user.selectOptions(screen.getByLabelText('Projekt'), project.id)
+    await save(user, first.onClose)
+
+    const [saved] = await listItems()
+    expect(saved).toMatchObject({
+      gtd: 'warten',
+      important: true,
+      dueDate: '2026-12-24',
+      durationMin: 2,
+      projectId: project.id,
+      projectOrder: 1,
+      waiting: { person: 'Frau Becker', since: '2026-11-01', followUpOn: '2026-11-20' },
+    })
+
+    first.view.unmount()
+    open(saved)
+    expect(screen.getByRole('radio', { name: 'Warte auf' })).toBeChecked()
+    expect(screen.getByLabelText('Person / Was')).toHaveValue('Frau Becker')
+    expect(screen.getByLabelText('Seit')).toHaveValue('2026-11-01')
+    expect(screen.getByLabelText('Nachhaken am')).toHaveValue('2026-11-20')
+    expect(screen.getByRole('button', { name: /Fokus/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Fällig bis')).toHaveValue('2026-12-24')
+    expect(screen.getByLabelText('Dauer')).toHaveValue('2')
+    await waitFor(() => expect(screen.getByLabelText('Projekt')).toHaveValue(project.id))
+  })
+
+  it('Wechsel weg von „Warte auf“ speichert waiting: null', async () => {
+    const user = userEvent.setup()
+    const item = await createItem({
+      type: 'aufgabe',
+      title: 'Warten',
+      categoryId: 'privat',
+      gtd: 'warten',
+      waiting: { person: 'Amt', since: '2026-11-01', followUpOn: null },
+    })
+    const { onClose } = open(item)
+    await user.click(screen.getByRole('radio', { name: 'Irgendwann' }))
+    expect(screen.queryByLabelText('Person / Was')).not.toBeInTheDocument()
+    await save(user, onClose)
+    const [saved] = await listItems()
+    expect(saved.gtd).toBe('irgendwann')
+    expect(saved.waiting).toBeNull()
+  })
+
+  it('Ablagenwechsel setzt ein unpassendes Projekt auf „kein Projekt“', async () => {
+    const user = userEvent.setup()
+    const project = await createProject({ title: 'Umzug', categoryId: 'privat' })
+    const item = await createItem({
+      type: 'aufgabe',
+      title: 'Schritt',
+      categoryId: 'privat',
+      projectId: project.id,
+      projectOrder: 1,
+    })
+    const { onClose } = open(item)
+    await waitFor(() => expect(screen.getByLabelText('Projekt')).toHaveValue(project.id))
+    await user.selectOptions(screen.getByLabelText('Ablage'), 'arbeit')
+    expect(screen.getByLabelText('Projekt')).toHaveValue('')
+    await save(user, onClose)
+    expect((await listItems())[0].projectId).toBeNull()
+  })
+
+  it('Notiz und Termin zeigen keine GTD-Felder und speichern keine', async () => {
+    const user = userEvent.setup()
+    const note = await createItem({ type: 'notiz', title: 'Notiz', categoryId: 'privat' })
+    const { onClose } = open(note)
+    expect(screen.queryByLabelText('Fällig bis')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Projekt')).not.toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Art'), 'termin')
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+    await save(user, onClose)
+    const [saved] = await listItems()
+    expect(saved.type).toBe('termin')
+    expect(saved).not.toHaveProperty('gtd')
+    expect(saved).not.toHaveProperty('dueDate')
+    expect(saved).not.toHaveProperty('waiting')
+    expect(saved).not.toHaveProperty('projectId')
+  })
+
+  it('Wechsel von Aufgabe auf Notiz löst den Projekt-Schritt, gtd und Fälligkeit bleiben', async () => {
+    const user = userEvent.setup()
+    const project = await createProject({ title: 'Umzug', categoryId: 'privat' })
+    const item = await createItem({
+      type: 'aufgabe',
+      title: 'Schritt',
+      categoryId: 'privat',
+      gtd: 'irgendwann',
+      dueDate: '2026-12-24',
+      projectId: project.id,
+      projectOrder: 1,
+    })
+    const { onClose } = open(item)
+    await user.selectOptions(screen.getByLabelText('Art'), 'notiz')
+    await save(user, onClose)
+    const [saved] = await listItems()
+    expect(saved.type).toBe('notiz')
+    expect(saved.projectId).toBeNull()
+    expect(saved).not.toHaveProperty('projectOrder')
+    expect(saved).toMatchObject({ gtd: 'irgendwann', dueDate: '2026-12-24' })
+  })
+
+  it('Wechsel der Art auf Notiz blendet die Felder aus und speichert sie nicht', async () => {
+    const user = userEvent.setup()
+    const item = await createItem({ type: 'aufgabe', title: 'A', categoryId: 'privat' })
+    const { onClose } = open(item)
+    await user.click(screen.getByRole('radio', { name: 'Irgendwann' }))
+    fireEvent.change(screen.getByLabelText('Fällig bis'), { target: { value: '2026-12-24' } })
+    await user.selectOptions(screen.getByLabelText('Art'), 'notiz')
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+    await save(user, onClose)
+    const [saved] = await listItems()
+    expect(saved.gtd).toBe('naechster-schritt')
+    expect(saved.dueDate ?? null).toBeNull()
+  })
+
+  it('eingeplante Aufgabe zeigt den Termin-Hinweis', async () => {
+    const item = await createItem({
+      type: 'aufgabe',
+      title: 'Geplant',
+      categoryId: 'privat',
+      schedule: { start: '2026-12-01T10:00:00+01:00', durationMin: 30, calendarEventId: 'ev1' },
+    })
+    open(item)
+    expect(screen.getByText(/Eingeplant: .*10:00.* – Status Termin/)).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Nächster Schritt' })).toBeChecked()
   })
 })

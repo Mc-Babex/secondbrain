@@ -37,9 +37,9 @@ const checkStart = (data: unknown): string[] =>
     ? []
     : ['Feld "startedAt" fehlt oder ist kein Zeitstempel mit Offset.']
 
-function summary(lastRun: LastRun, written: number, scheduledExisting: number): string[] {
+function summary(lastRun: LastRun, written: number): string[] {
   const lines = [
-    `ANGEWENDET: ${lastRun.processed} einsortiert, ${lastRun.skipped.length} übersprungen, ${lastRun.errors.length} Fehler, ${scheduledExisting} vorhandene Aufgaben eingeplant`,
+    `ANGEWENDET: ${lastRun.processed} einsortiert, ${lastRun.skipped.length} übersprungen, ${lastRun.errors.length} Fehler, ${lastRun.projectIds?.length ?? 0} Projekte angelegt`,
   ]
   if (written === 0) lines.push('Nichts geschrieben.')
   for (const s of lastRun.skipped) lines.push(`Übersprungen ${s.inboxId}: ${s.message}`)
@@ -87,7 +87,7 @@ export async function runAnwenden(options: LaufOptions): Promise<LaufResult> {
   for (const path of result.deletes) await deleteFile(dir, path)
   return {
     exitCode: 0,
-    lines: summary(result.lastRun, result.writes.length, result.scheduledExisting),
+    lines: summary(result.lastRun, result.writes.length),
   }
 }
 

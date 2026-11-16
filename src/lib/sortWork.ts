@@ -1,19 +1,7 @@
-import type { Item } from '../data/types'
-
-/** SPEC §8.4 e: offene, wichtige Aufgabe ohne Termin. */
-export function isPhaseEItem(item: Item): boolean {
-  return (
-    item.type === 'aufgabe' && item.status === 'offen' && item.important && item.schedule === null
-  )
-}
-
 /**
- * Gibt es Arbeit für den Lauf? Inbox-Einträge zählen nur ohne `sortError` (egal welchen Werts),
- * dazu kommen Aufgaben nach §8.4 e. App und Lauf entscheiden damit gleich.
+ * Gibt es Arbeit für den Lauf? Nur Inbox-Einträge ohne `sortError` (egal welchen Werts) zählen
+ * (SPEC §6.3/§8.2, Phase 9); vorhandene Aufgaben lösen keinen Lauf aus. App und Lauf entscheiden damit gleich.
  */
-export function hasSortWork(
-  inbox: readonly { id: string; sortError?: unknown }[],
-  items: readonly Item[],
-): boolean {
-  return inbox.some((entry) => entry.sortError === undefined) || items.some(isPhaseEItem)
+export function hasSortWork(inbox: readonly { id: string; sortError?: unknown }[]): boolean {
+  return inbox.some((entry) => entry.sortError === undefined)
 }

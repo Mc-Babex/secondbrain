@@ -22,6 +22,7 @@ function repo(partial: Partial<DataRepoFiles> = {}): DataRepoFiles {
     inbox: [],
     items: [],
     suggestions: [],
+    projects: [],
     categories: null,
     settings: null,
     lastRun: null,

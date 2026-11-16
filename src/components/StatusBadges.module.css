@@ -1,0 +1,47 @@
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.badge {
+  padding: 0 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.next {
+  color: var(--status-next);
+}
+
+.termin {
+  color: var(--status-termin);
+}
+
+.waiting {
+  color: var(--status-waiting);
+}
+
+.someday {
+  color: var(--status-someday);
+}
+
+.focus {
+  color: var(--status-focus);
+}
+
+.quick {
+  color: var(--color-success);
+}
+
+.due {
+  color: var(--color-text-muted);
+}
+
+.overdue {
+  color: var(--color-danger);
+  font-weight: 600;
+}

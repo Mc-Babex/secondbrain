@@ -1,5 +1,6 @@
 import { categoryIdFromName } from '../lib/categoryId'
 import { berlinDate, projectSteps } from '../lib/gtd'
+import { addDays } from '../lib/series'
 import { findSameArticle } from '../lib/shopping'
 import { appointmentEnd, hasEnded, selectPastAppointments } from '../lib/pastAppointments'
 import { nowIso, toIso } from '../lib/time'
@@ -18,6 +19,7 @@ import {
 } from './localStore'
 import {
   isCategory,
+  isDateString,
   isInboxEntry,
   isItem,
   isObj,
@@ -38,6 +40,7 @@ import {
   type LastRun,
   type Project,
   type Settings,
+  type StepSeries,
   type Suggestion,
   type Waiting,
 } from './types'
@@ -459,10 +462,17 @@ async function modifyItem(
   return data as Item
 }
 
+/** Felder mit dem Wert `undefined` im Patch werden aus dem Eintrag entfernt. */
 export function updateItem(id: string, patch: Partial<Omit<Item, 'id'>>): Promise<Item> {
   return modifyItem(
     id,
-    (current) => ({ ...current, ...patch, id, updatedAt: nowIso() }),
+    (current) => {
+      const next: Item = { ...current, ...patch, id, updatedAt: nowIso() }
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined) delete (next as unknown as Record<string, unknown>)[key]
+      }
+      return next
+    },
     Object.keys(patch),
   )
 }
@@ -472,13 +482,40 @@ export async function deleteItem(id: string): Promise<void> {
   notifyChange()
 }
 
+/** Reihenfolge für einen neu zugeordneten Schritt: hinter allen vorhandenen Schritten des Projekts. */
+function nextProjectOrder(projectId: string, items: readonly Item[]): number {
+  return (
+    projectSteps(projectId, items).reduce((max, s) => Math.max(max, s.projectOrder ?? 0), 0) + 1
+  )
+}
+
+/** GTD-Felder, die „In Ablage“ gleich mit anlegen kann (`projectOrder` wird hinten angehängt). */
+export type FileInboxGtd = Partial<
+  Pick<Item, 'gtd' | 'important' | 'dueDate' | 'durationMin' | 'waiting' | 'projectId'>
+>
+
+/** Legt einen Eingangskorb-Eintrag als Eintrag ab: Item schreiben und Eintrag löschen in einem Commit. */
 export async function fileInboxEntry(
   id: string,
-  fields: { type: ItemType; title: string; categoryId: string; notes?: string },
+  fields: {
+    type: ItemType
+    title: string
+    categoryId: string
+    notes?: string
+  } & FileInboxGtd,
 ): Promise<Item> {
   const entry = await readInbox(id)
+  const { projectId, ...rest } = fields
+  const projectFields =
+    typeof projectId === 'string'
+      ? {
+          projectId,
+          projectOrder: nextProjectOrder(projectId, await listItems()),
+        }
+      : {}
   const item = buildItem({
-    ...fields,
+    ...rest,
+    ...projectFields,
     notes: fields.notes ?? '',
     id,
     createdAt: entry.createdAt,
@@ -490,6 +527,32 @@ export async function fileInboxEntry(
   ])
   notifyChange()
   return item
+}
+
+/**
+ * Ordnet einen Eintrag einem Projekt zu (`projectOrder` hinten angehängt) oder löst ihn (`null`:
+ * `projectId` = `null`, `projectOrder` entfällt). Dasselbe Projekt lässt die Reihenfolge unverändert.
+ */
+export async function assignItemToProject(id: string, projectId: string | null): Promise<Item> {
+  const items = projectId === null ? [] : await listItems()
+  return modifyItem(
+    id,
+    (current) => {
+      if (projectId === null) {
+        const detached: Item = { ...current, projectId: null, updatedAt: nowIso() }
+        delete detached.projectOrder
+        return detached
+      }
+      if (current.projectId === projectId) return current
+      return {
+        ...current,
+        projectId,
+        projectOrder: nextProjectOrder(projectId, items),
+        updatedAt: nowIso(),
+      }
+    },
+    ['projectId', 'projectOrder'],
+  )
 }
 
 /** Wie ✓ Erledigt: Eintrag ins Archiv, ursprüngliche Ablage merken. */
@@ -743,6 +806,146 @@ export async function updateProject(
   await commitLocal([...writes, { path: projectPath(id), op: 'put', data: updated }])
   notifyChange()
   return updated
+}
+
+// --- Schritt-Serien (SPEC §3.12) -------------------------------------------
+
+export type SeriesFields = Pick<
+  StepSeries,
+  | 'titlePattern'
+  | 'every'
+  | 'weekday'
+  | 'startDate'
+  | 'endDate'
+  | 'count'
+  | 'dueWeekday'
+  | 'durationMin'
+>
+
+const isWeekday = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 7
+
+const SERIES_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789'
+
+/** `s` + 6 zufällige Zeichen (a–z, 0–9), damit zwei Geräte nicht dieselbe ID vergeben. */
+function newSeriesId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(6))
+  return `s${Array.from(bytes, (b) => SERIES_ID_CHARS[b % SERIES_ID_CHARS.length]).join('')}`
+}
+
+function checkSeriesFields(fields: Partial<SeriesFields>): void {
+  if (fields.titlePattern !== undefined && fields.titlePattern.trim() === '') {
+    throw new Error('Das Titelmuster darf nicht leer sein.')
+  }
+  if (fields.every !== undefined && (!Number.isInteger(fields.every) || fields.every < 1)) {
+    throw new Error('Der Rhythmus muss mindestens jede Woche sein.')
+  }
+  if (fields.weekday !== undefined && !isWeekday(fields.weekday)) {
+    throw new Error('Ungültiger Wochentag.')
+  }
+  if (fields.dueWeekday != null && !isWeekday(fields.dueWeekday)) {
+    throw new Error('Ungültiger Fälligkeits-Wochentag.')
+  }
+  if (fields.startDate !== undefined && !isDateString(fields.startDate)) {
+    throw new Error('Ungültiges Startdatum (erwartet JJJJ-MM-TT).')
+  }
+  if (fields.endDate != null && !isDateString(fields.endDate)) {
+    throw new Error('Ungültiges Enddatum (erwartet JJJJ-MM-TT).')
+  }
+  if (fields.endDate != null && fields.count != null) {
+    throw new Error('Ende entweder per Datum oder per Anzahl festlegen.')
+  }
+}
+
+/** Ändert die Serien eines Projekts atomar anhand der aktuellen Projektdatei; unbekannte Serien bleiben unverändert. */
+async function modifyProjectSeries(
+  projectId: string,
+  change: (series: Project['series']) => Project['series'],
+): Promise<Project> {
+  const data = await updateFileLocal(projectPath(projectId), (current) => {
+    const project = parseProject(current, projectId)
+    return { ...project, series: change(project.series), updatedAt: nowIso(), v: FORMAT_V }
+  })
+  notifyChange()
+  return data as Project
+}
+
+function changeSeries(
+  projectId: string,
+  seriesId: string,
+  change: (series: StepSeries) => StepSeries,
+): Promise<Project> {
+  return modifyProjectSeries(projectId, (list) => {
+    if (!list.some((s) => isStepSeries(s) && s.id === seriesId)) {
+      throw new Error(`Serie ${seriesId} nicht gefunden`)
+    }
+    return list.map((s) => (isStepSeries(s) && s.id === seriesId ? change(s) : s))
+  })
+}
+
+/** Legt eine aktive Serie an (`lastNumber` 0, `lastDate` `null`); die Instanzen entstehen beim nächsten Sync. */
+export async function addSeries(projectId: string, fields: SeriesFields): Promise<StepSeries> {
+  checkSeriesFields(fields)
+  const result: { added?: StepSeries } = {}
+  await modifyProjectSeries(projectId, (list) => {
+    const taken = new Set(list.map((s) => (isObj(s) ? s.id : undefined)))
+    let id = newSeriesId()
+    while (taken.has(id)) id = newSeriesId()
+    const added: StepSeries = {
+      ...fields,
+      titlePattern: fields.titlePattern.trim(),
+      id,
+      state: 'aktiv',
+      lastNumber: 0,
+      lastDate: null,
+    }
+    result.added = added
+    return [...list, added]
+  })
+  if (result.added === undefined) throw new Error('Serie konnte nicht angelegt werden.')
+  return result.added
+}
+
+/** Ändert Muster, Rhythmus, Start, Ende, Fälligkeit oder Dauer; `lastNumber`/`lastDate` und Instanzen bleiben. */
+export function updateSeries(
+  projectId: string,
+  seriesId: string,
+  patch: Partial<SeriesFields>,
+): Promise<Project> {
+  checkSeriesFields(patch)
+  return changeSeries(projectId, seriesId, (s) => {
+    const merged = { ...s, ...patch }
+    if (patch.endDate != null) merged.count = null
+    if (patch.count != null) merged.endDate = null
+    return { ...merged, titlePattern: merged.titlePattern.trim() }
+  })
+}
+
+export function pauseSeries(projectId: string, seriesId: string): Promise<Project> {
+  return changeSeries(projectId, seriesId, (s) =>
+    s.state === 'aktiv' ? { ...s, state: 'pausiert' } : s,
+  )
+}
+
+/** Setzt eine pausierte Serie fort: `lastDate` = gestern (falls größer), `lastNumber` bleibt. */
+export function resumeSeries(
+  projectId: string,
+  seriesId: string,
+  today: string = berlinDate(new Date()),
+): Promise<Project> {
+  const yesterday = addDays(today, -1)
+  return changeSeries(projectId, seriesId, (s) =>
+    s.state === 'pausiert'
+      ? {
+          ...s,
+          state: 'aktiv',
+          lastDate: s.lastDate !== null && s.lastDate > yesterday ? s.lastDate : yesterday,
+        }
+      : s,
+  )
+}
+
+export function endSeries(projectId: string, seriesId: string): Promise<Project> {
+  return changeSeries(projectId, seriesId, (s) => ({ ...s, state: 'beendet' }))
 }
 
 /** Löscht ein Projekt, aber nur ohne Schritte (auch ohne erledigte); sonst erst abschließen. */

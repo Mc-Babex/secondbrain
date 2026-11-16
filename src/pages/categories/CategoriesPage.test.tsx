@@ -11,6 +11,7 @@ let mockCategories: Category[] = []
 vi.mock('../../data/hooks', () => ({
   useCategories: () => mockCategories,
   useItems: () => [],
+  useProjects: () => [],
 }))
 
 function cat(id: string, name: string, kind: Category['kind'], order: number): Category {

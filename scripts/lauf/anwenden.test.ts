@@ -74,7 +74,7 @@ describe('lauf:anwenden', () => {
     const result = await run()
     expect(result.exitCode).toBe(0)
     expect(result.lines[0]).toBe(
-      'ANGEWENDET: 1 einsortiert, 0 übersprungen, 0 Fehler, 0 vorhandene Aufgaben eingeplant',
+      'ANGEWENDET: 1 einsortiert, 0 übersprungen, 0 Fehler, 0 Projekte angelegt',
     )
     expect(await read(`items/${scheduled.id}.json`)).toEqual({
       ...scheduled,

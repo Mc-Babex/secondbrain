@@ -201,7 +201,7 @@ describe('Vorprüfungen', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('zählt eine wichtige Aufgabe ohne Termin als Arbeit', async () => {
+  it('zählt eine wichtige Aufgabe ohne Termin nicht als Arbeit (Phase 9)', async () => {
     await putFileFromRemote(
       'items/i.json',
       {
@@ -219,7 +219,8 @@ describe('Vorprüfungen', () => {
     )
     const trigger = install()
     await run(trigger.start())
-    expect(posts()).toHaveLength(1)
+    expect(trigger.getState().message).toBe('Nichts zu sortieren')
+    expect(posts()).toHaveLength(0)
   })
 
   it('meldet offline ohne Anfrage', async () => {

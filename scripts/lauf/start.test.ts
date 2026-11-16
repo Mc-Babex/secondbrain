@@ -86,6 +86,7 @@ describe('lauf:start ohne Git', () => {
       'Erster',
       `--- ${B} | 2026-10-21T14:03:00+02:00`,
       'Zweiter\nText',
+      'Aktive Projekte: keine',
     ])
   })
 

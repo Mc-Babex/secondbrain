@@ -1,5 +1,5 @@
 // Prüft Claudes Entscheidungen und berechnet die fertigen Einträge samt Zeiten (SPEC §8.3–8.4).
-import type { Category, Item, Settings } from '../../src/data/types'
+import type { Category, Item, Project, Settings } from '../../src/data/types'
 import { categoryIdFromName } from '../../src/lib/categoryId'
 import { effectivePause, timeToMinutes } from '../../src/lib/planning'
 import {
@@ -9,22 +9,22 @@ import {
   nextQuarter,
   type Interval,
 } from '../../src/lib/slots'
-import { isPhaseEItem } from '../../src/lib/sortWork'
 import { findSameArticle, normalizeArticle } from '../../src/lib/shopping'
 import { toIso, zonedParts } from '../../src/lib/time'
 import {
   isDecisionsFile,
   isEventsFile,
   NEW_CATEGORY_REF,
+  NEW_PROJECT_REF,
   validateDecisionsFile,
   validateEventsFile,
   type CalendarEvent,
   type Decision,
   type DecisionItem,
+  type NewProjectRequest,
   type PlanDuplicate,
   type PlanEntry,
   type PlanEvent,
-  type PlanExisting,
   type PlanFile,
 } from './files'
 
@@ -46,27 +46,36 @@ export interface BuildPlanInput {
   notSelected?: ReadonlySet<string>
   /** Vorhandene Einträge (für die Dublettenprüfung der Einkaufsliste); Standard: keine. */
   existingItems?: readonly Item[]
+  /** Vorhandene Projekte (`projects/`); nur aktive nehmen Schritte auf. Standard: keine. */
+  projects?: readonly Project[]
   newId: (now: Date) => string
 }
 
 export type BuildPlanResult = { ok: true; plan: PlanFile } | { ok: false; errors: string[] }
 
-type Phase = 'a' | 'b' | 'c' | 'd' | null
+type Phase = 'a' | 'b' | 'c' | null
 
 interface WorkItem {
   entry: WorkEntry
   source: DecisionItem
   id: string
   category: Category
+  /** Dauer des Eintrags (Angabe des Nutzers, sonst Standard bei Einplanung). */
   durationMin: number | null
+  /** Länge des Kalenderblocks: mindestens 15 Min., auf 15 aufgerundet; `null` = nicht einplanen. */
+  blockMin: number | null
   phase: Phase
   start: Date | null
+  /** Projekt (vorhanden oder neu in dieser Entscheidung), zu dem der Schritt gehört. */
+  projectId: string | null
+  projectOrder?: number
 }
 
 interface WorkEntry {
   inbox: PlanInboxEntry
   decision: Decision
   newCategory: Category | null
+  newProject: Project | null
   items: WorkItem[]
   duplicates: PlanDuplicate[]
 }
@@ -75,8 +84,6 @@ const QUARTER_MIN = 15
 const MINUTE_MS = 60_000
 const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
 const ID_ATTEMPTS = 100
-
-const DEFAULT_EXISTING_MIN = 30
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 
@@ -115,48 +122,21 @@ export function maxBlockMin(window: Settings['planningWindow']): number {
   )
 }
 
-export interface PhaseEItem {
-  item: Item
-  durationMin: number
+/** Standarddauer eines Kalenderblocks, wenn der Nutzer keine nennt (SPEC §8.4). */
+const DEFAULT_BLOCK_MIN: Readonly<Record<Exclude<Phase, null>, number>> = { a: 60, b: 90, c: 30 }
+
+/** Block: Dauer auf 15 aufrunden, mindestens 15 Min., höchstens das Planungsfenster. */
+function blockMinutes(item: DecisionItem, phase: Phase, maxMin: number): number | null {
+  if (phase === null) return null
+  const base = item.durationMin ?? DEFAULT_BLOCK_MIN[phase]
+  return Math.min(Math.max(Math.ceil(base / QUARTER_MIN) * QUARTER_MIN, QUARTER_MIN), maxMin)
 }
 
-/** Einzuplanende vorhandene Aufgaben (8.4 e): 15-Min.-Aufgaben zuerst, dann nach `createdAt`. */
-export function phaseEItems(items: readonly Item[], maxMin: number): PhaseEItem[] {
-  const clamp = (min: number): number => Math.min(Math.max(min, QUARTER_MIN), maxMin)
-  return items
-    .filter(isPhaseEItem)
-    .map((item) => ({
-      item,
-      durationMin: clamp(
-        item.durationMin === null
-          ? DEFAULT_EXISTING_MIN
-          : Math.round(item.durationMin / QUARTER_MIN) * QUARTER_MIN,
-      ),
-    }))
-    .sort(
-      (a, b) =>
-        Number(b.durationMin === QUARTER_MIN) - Number(a.durationMin === QUARTER_MIN) ||
-        Date.parse(a.item.createdAt) - Date.parse(b.item.createdAt) ||
-        a.item.id.localeCompare(b.item.id),
-    )
-}
-
-function normalizeDuration(item: DecisionItem, maxMin: number): number | null {
-  const clamp = (min: number): number => Math.min(Math.max(min, QUARTER_MIN), maxMin)
-  if (item.durationMin !== null) {
-    return clamp(Math.round(item.durationMin / QUARTER_MIN) * QUARTER_MIN)
-  }
-  if (item.when?.time) return clamp(60)
-  if (item.when) return clamp(90)
-  if (item.important) return clamp(30)
-  return null
-}
-
-function phaseOf(item: DecisionItem, durationMin: number | null): Phase {
+/** a) feste Uhrzeit; b) Datum ohne Uhrzeit bei Termin oder `plan`; c) `plan` ohne Datum (SPEC §8.4). */
+function phaseOf(item: DecisionItem): Phase {
   if (item.when?.time) return 'a'
-  if (item.when) return 'b'
-  if (item.important) return durationMin === QUARTER_MIN ? 'c' : 'd'
-  return null
+  if (item.when) return item.type === 'termin' || item.plan === true ? 'b' : null
+  return item.plan === true ? 'c' : null
 }
 
 const byCreatedAt = (a: PlanInboxEntry, b: PlanInboxEntry): number =>
@@ -204,16 +184,22 @@ function resolveCategories(
   matched: { inbox: PlanInboxEntry; decision: Decision }[],
   categories: readonly Category[],
   errors: string[],
-): { created: Category[]; byEntry: Map<string, Category[]> } {
+): {
+  created: Category[]
+  byEntry: Map<string, Category[]>
+  projectCategory: Map<string, Category>
+} {
   const all: Category[] = [...categories]
   const created: Category[] = []
   const byEntry = new Map<string, Category[]>()
+  const projectCategory = new Map<string, Category>()
   for (const { inbox, decision } of matched) {
     const label = `Entscheidung ${inbox.id}`
     let fresh: Category | null = null
     const request = decision.newCategory
     if (request) {
-      if (!decision.items.some((i) => i.categoryId === NEW_CATEGORY_REF)) {
+      const usedByProject = decision.newProject?.categoryId === NEW_CATEGORY_REF
+      if (!usedByProject && !decision.items.some((i) => i.categoryId === NEW_CATEGORY_REF)) {
         errors.push(`${label}: newCategory ist gesetzt, aber kein Eintrag nutzt categoryId "@neu".`)
       }
       const name = request.name.trim().toLowerCase()
@@ -251,12 +237,35 @@ function resolveCategories(
       resolved.push(category)
     }
     byEntry.set(inbox.id, resolved)
+    const projectRequest = decision.newProject
+    if (projectRequest) {
+      const category =
+        projectRequest.categoryId === NEW_CATEGORY_REF
+          ? fresh
+          : all.find((c) => c.id === projectRequest.categoryId)
+      if (!category) {
+        errors.push(`${label}: Ablage „${projectRequest.categoryId}“ (newProject) gibt es nicht.`)
+      } else if (category.kind !== 'normal') {
+        errors.push(`${label}: Ein Projekt darf nicht in der Ablage „${category.name}“ liegen.`)
+      } else projectCategory.set(inbox.id, category)
+    }
   }
-  return { created, byEntry }
+  return { created, byEntry, projectCategory }
+}
+
+/** „Fällig bis“: Angabe von Claude, sonst das Datum einer Aufgabe ohne Uhrzeit und ohne Einplanen. */
+function dueDateOf(work: WorkItem): string | null {
+  const { source } = work
+  if (source.dueDate) return source.dueDate
+  if (source.type === 'aufgabe' && work.phase === null && source.when && !source.when.time) {
+    return source.when.date
+  }
+  return null
 }
 
 function buildItem(work: WorkItem, now: Date): Item {
   const { source, category } = work
+  const gtd = source.gtd ?? 'naechster-schritt'
   return {
     id: work.id,
     type: source.type,
@@ -267,14 +276,24 @@ function buildItem(work: WorkItem, now: Date): Item {
     important: source.important,
     durationMin: work.durationMin,
     schedule:
-      work.start && work.durationMin !== null
-        ? { start: toIso(work.start), durationMin: work.durationMin }
+      work.start && work.blockMin !== null
+        ? { start: toIso(work.start), durationMin: work.blockMin }
         : null,
     originalCategoryId: null,
     ...(category.kind === 'einkauf' ? { checked: false } : {}),
     createdAt: work.entry.inbox.createdAt,
     updatedAt: toIso(now),
     completedAt: null,
+    ...(source.type === 'aufgabe'
+      ? {
+          gtd,
+          dueDate: dueDateOf(work),
+          waiting: gtd === 'warten' ? (source.waiting ?? null) : null,
+          projectId: work.projectId,
+          ...(work.projectOrder !== undefined ? { projectOrder: work.projectOrder } : {}),
+        }
+      : {}),
+    v: 2,
   }
 }
 
@@ -302,18 +321,31 @@ export function buildPlan(input: BuildPlanInput): BuildPlanResult {
     errors,
     input.notSelected ?? new Set(),
   )
-  const { created, byEntry } = resolveCategories(matched, input.categories, errors)
+  const { created, byEntry, projectCategory } = resolveCategories(matched, input.categories, errors)
 
   const window = settings.planningWindow
   const maxMin = maxBlockMin(window)
 
   const usedIds = new Set(input.existingItemIds)
   const existingItems = input.existingItems ?? []
+  const activeProjects = new Map(
+    (input.projects ?? []).filter((p) => p.status === 'aktiv').map((p) => [p.id, p]),
+  )
+  const usedProjectIds = new Set((input.projects ?? []).map((p) => p.id))
   const seenArticles = new Set<string>()
   const entries: WorkEntry[] = []
   for (const { inbox, decision } of matched) {
     const categories = byEntry.get(inbox.id) ?? []
-    const entry: WorkEntry = { inbox, decision, newCategory: null, items: [], duplicates: [] }
+    const entry: WorkEntry = {
+      inbox,
+      decision,
+      newCategory: null,
+      newProject: null,
+      items: [],
+      duplicates: [],
+    }
+    const label = `Entscheidung ${inbox.id}`
+    let newProjectId: string | null = null
     let kept = 0
     decision.items.forEach((source, index) => {
       const target = categories[index]
@@ -341,26 +373,120 @@ export function buildPlan(input: BuildPlanInput): BuildPlanResult {
           errors.push(`Entscheidung ${inbox.id}: Keine freie Eintrags-ID gefunden.`)
       }
       usedIds.add(id)
-      const category = categories[index]
+      let category = categories[index]
       if (!category) return
-      const durationMin = normalizeDuration(source, maxMin)
+      let projectId: string | null = null
+      const ref = source.projectId ?? null
+      if (ref !== null) {
+        if (source.type !== 'aufgabe') {
+          errors.push(
+            `${label}: „${source.title}“ ist keine Aufgabe und kann kein Projekt-Schritt sein.`,
+          )
+        } else if (ref === NEW_PROJECT_REF) {
+          const request = decision.newProject
+          const projectCat = projectCategory.get(inbox.id)
+          if (!request || !projectCat) return
+          if (newProjectId === null) {
+            newProjectId = freshId(input, usedProjectIds, usedIds)
+            entry.newProject = buildProject(newProjectId, request, projectCat, now)
+          }
+          projectId = newProjectId
+          category = projectCat
+        } else {
+          const project = activeProjects.get(ref)
+          if (!project) {
+            errors.push(`${label}: Projekt „${ref}“ gibt es nicht oder es ist nicht aktiv.`)
+          } else {
+            projectId = project.id
+            category = input.categories.find((c) => c.id === project.categoryId) ?? category
+          }
+        }
+      }
+      const phase = phaseOf(source)
+      const blockMin = blockMinutes(source, phase, maxMin)
       entry.items.push({
         entry,
         source,
         id,
         category,
-        durationMin,
-        phase: phaseOf(source, durationMin),
+        durationMin: source.durationMin ?? blockMin,
+        blockMin,
+        phase,
         start: null,
+        projectId,
       })
     })
+    if (decision.newProject && newProjectId === null) {
+      errors.push(`${label}: newProject ist gesetzt, aber kein Eintrag nutzt projectId "@neu".`)
+    }
     entries.push(entry)
   }
 
   if (errors.length > 0) return { ok: false, errors }
 
+  assignProjectOrder(entries, input.decisions.decisions, existingItems)
   const calendarBusy = busyIntervals(input.events.events)
   return { ok: true, plan: schedule(entries, created, input, calendarBusy) }
+}
+
+/** Neue ID, die weder unter den Einträgen noch unter den Projekten vorkommt. */
+function freshId(
+  input: BuildPlanInput,
+  usedProjectIds: Set<string>,
+  usedItemIds: ReadonlySet<string>,
+): string {
+  let id = input.newId(input.now)
+  for (let i = 0; (usedProjectIds.has(id) || usedItemIds.has(id)) && i < ID_ATTEMPTS; i++) {
+    id = input.newId(input.now)
+  }
+  usedProjectIds.add(id)
+  return id
+}
+
+function buildProject(
+  id: string,
+  request: NewProjectRequest,
+  category: Category,
+  now: Date,
+): Project {
+  return {
+    id,
+    title: request.title.trim(),
+    notes: request.notes,
+    categoryId: category.id,
+    status: 'aktiv',
+    series: [],
+    createdAt: toIso(now),
+    updatedAt: toIso(now),
+    completedAt: null,
+    v: 2,
+  }
+}
+
+/**
+ * `projectOrder` der neuen Schritte: hinter allen vorhandenen Schritten des Projekts, mehrere im selben
+ * Lauf fortlaufend in der Reihenfolge der Entscheidungen.
+ */
+function assignProjectOrder(
+  entries: readonly WorkEntry[],
+  decisions: readonly Decision[],
+  existingItems: readonly Item[],
+): void {
+  const last = new Map<string, number>()
+  for (const item of existingItems) {
+    if (item.projectId) {
+      last.set(item.projectId, Math.max(last.get(item.projectId) ?? 0, item.projectOrder ?? 0))
+    }
+  }
+  const byInbox = new Map(entries.map((e) => [e.inbox.id, e]))
+  for (const decision of decisions) {
+    for (const work of byInbox.get(decision.inboxId)?.items ?? []) {
+      if (work.projectId === null) continue
+      const next = (last.get(work.projectId) ?? 0) + 1
+      last.set(work.projectId, next)
+      work.projectOrder = next
+    }
+  }
 }
 
 function schedule(
@@ -384,7 +510,7 @@ function schedule(
   const reserve = (work: WorkItem, start: Date): void => {
     work.start = start
     const list = reserved.get(work.entry.inbox.id) ?? []
-    list.push({ start, end: endOf(start, work.durationMin ?? QUARTER_MIN) })
+    list.push({ start, end: endOf(start, work.blockMin ?? QUARTER_MIN) })
     reserved.set(work.entry.inbox.id, list)
   }
   const itemsOf = (phase: Phase): WorkItem[] =>
@@ -413,7 +539,7 @@ function schedule(
   for (const work of itemsOf('b')) {
     const when = work.source.when
     if (!when || failed.has(work.entry.inbox.id)) continue
-    const duration = work.durationMin ?? QUARTER_MIN
+    const duration = work.blockMin ?? QUARTER_MIN
     if (when.date < today) {
       fail(work.entry, `Der Tag ${formatDay(when.date)} liegt in der Vergangenheit.`)
       continue
@@ -436,43 +562,27 @@ function schedule(
     }
   }
 
-  // c) wichtig, 15 Min., und d) wichtig, sonst: beide ab Tagesanfang, nie am laufenden Tag; c zuerst.
+  // c) `plan` ohne Datum: ab Tagesanfang, nie am laufenden Tag; Einträge bis 15 Min. zuerst.
   const dayStart = dayStartFrom(now, window)
-  for (const phase of ['c', 'd'] as const) {
-    for (const work of itemsOf(phase)) {
-      if (failed.has(work.entry.inbox.id)) continue
-      const slot = findSlot({
-        busy: busy(),
-        window,
-        pause,
-        from: dayStart,
-        durationMin: work.durationMin ?? QUARTER_MIN,
-      })
-      if (slot) reserve(work, slot)
-      else {
-        planErrors.push({
-          inboxId: work.entry.inbox.id,
-          message: `Für „${work.source.title}“ ist in den nächsten 14 Tagen kein freier Slot im Planungsfenster; der Eintrag bleibt ohne Termin.`,
-        })
-      }
-    }
-  }
-
-  // e) vorhandene wichtige Aufgaben ohne Termin: nach den neuen Einträgen, ebenfalls ab Tagesanfang.
-  const existing: PlanExisting[] = []
-  for (const { item, durationMin } of phaseEItems(input.existingItems ?? [], maxBlockMin(window))) {
-    const slot = findSlot({ busy: busy(), window, pause, from: dayStart, durationMin })
-    if (slot) {
-      reserved.set(item.id, [{ start: slot, end: endOf(slot, durationMin) }])
-      existing.push({ itemId: item.id, title: item.title, start: toIso(slot), durationMin })
-    } else {
+  const isShort = (w: WorkItem): number => Number((w.blockMin ?? QUARTER_MIN) <= QUARTER_MIN)
+  for (const work of [...itemsOf('c')].sort((x, y) => isShort(y) - isShort(x))) {
+    if (failed.has(work.entry.inbox.id)) continue
+    const slot = findSlot({
+      busy: busy(),
+      window,
+      pause,
+      from: dayStart,
+      durationMin: work.blockMin ?? QUARTER_MIN,
+    })
+    if (slot) reserve(work, slot)
+    else {
       planErrors.push({
-        inboxId: null,
-        message: `Für „${item.title}“ ist in den nächsten 14 Tagen kein freier Slot im Planungsfenster; die Aufgabe bleibt ohne Termin.`,
+        inboxId: work.entry.inbox.id,
+        message: `Für „${work.source.title}“ ist in den nächsten 14 Tagen kein freier Slot im Planungsfenster; der Eintrag bleibt ohne Termin.`,
       })
     }
   }
-  return assemble(entries, created, failed, planErrors, existing, now)
+  return assemble(entries, created, failed, planErrors, now)
 }
 
 function assemble(
@@ -480,7 +590,6 @@ function assemble(
   created: Category[],
   failed: ReadonlyMap<string, string>,
   planErrors: PlanFile['errors'],
-  existing: readonly PlanExisting[],
   now: Date,
 ): PlanFile {
   const announced = new Set<string>()
@@ -503,28 +612,19 @@ function assemble(
       result: 'ok',
       message: null,
       newCategory,
+      ...(entry.newProject ? { newProject: entry.newProject } : {}),
       items: entry.items.map((w) => buildItem(w, now)),
     })
     for (const work of entry.items) {
-      if (!work.start || work.durationMin === null) continue
+      if (!work.start || work.blockMin === null) continue
       events.push({
         itemId: work.id,
         title: work.source.title,
         start: toIso(work.start),
-        end: toIso(endOf(work.start, work.durationMin)),
+        end: toIso(endOf(work.start, work.blockMin)),
         description: `Erstellt mit SecondBrain (Claude-Lauf)\nEintrag: ${work.id}`,
       })
     }
-  }
-  for (const e of existing) {
-    events.push({
-      itemId: e.itemId,
-      title: e.title,
-      start: e.start,
-      end: toIso(new Date(Date.parse(e.start) + e.durationMin * MINUTE_MS)),
-      description: `Erstellt mit SecondBrain (Claude-Lauf)
-Eintrag: ${e.itemId}`,
-    })
   }
   return {
     now: toIso(now),
@@ -532,6 +632,5 @@ Eintrag: ${e.itemId}`,
     events,
     errors: planErrors,
     duplicates: entries.flatMap((e) => e.duplicates),
-    ...(existing.length > 0 ? { existing: [...existing] } : {}),
   }
 }

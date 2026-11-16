@@ -15,7 +15,9 @@ import { newId } from '../../src/data/ids'
 import {
   isItem,
   isObj,
+  isProject,
   normalizeItem,
+  normalizeProject,
   type Category,
   type Item,
   type Settings,
@@ -89,6 +91,9 @@ function overview(plan: PlanFile, categories: readonly Category[]): string[] {
     if (entry.result === 'sortError') {
       lines.push(`${entry.inboxId}  bleibt im Eingangskorb (sortError): ${entry.message ?? ''}`)
     }
+    if (entry.newProject) {
+      lines.push(`${entry.inboxId}  Neues Projekt „${entry.newProject.title}“`)
+    }
     for (const item of entry.items) {
       const type = TYPE_LABELS[item.type] ?? item.type
       const where = names.get(item.categoryId) ?? item.categoryId
@@ -97,13 +102,6 @@ function overview(plan: PlanFile, categories: readonly Category[]): string[] {
   }
   for (const d of plan.duplicates ?? []) {
     lines.push(`${d.inboxId}  Schon auf der Einkaufsliste: ${d.title}`)
-  }
-  for (const e of plan.existing ?? []) {
-    const day = formatDay(e.start.slice(0, 10))
-    const end = toIso(new Date(Date.parse(e.start) + e.durationMin * 60_000))
-    lines.push(
-      `${e.itemId}  Vorhandene Aufgabe „${e.title}“ → ${day} ${e.start.slice(11, 16)}–${end.slice(11, 16)}`,
-    )
   }
   for (const e of plan.errors) {
     lines.push(e.inboxId === null ? `Hinweis: ${e.message}` : `Hinweis ${e.inboxId}: ${e.message}`)
@@ -186,6 +184,7 @@ export async function runPlanen(options: PlanenOptions): Promise<PlanenResult> {
     settings,
     existingItemIds,
     existingItems: repo.items.flatMap((f) => (isItem(f.data) ? [normalizeItem(f.data)] : [])),
+    projects: repo.projects.flatMap((f) => (isProject(f.data) ? [normalizeProject(f.data)] : [])),
     newId,
   })
   if (!result.ok) return failure(result.errors)

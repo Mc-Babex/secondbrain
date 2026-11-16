@@ -33,7 +33,7 @@ describe('ArchiveView Termine', () => {
     expect(screen.getByText(/Termin am Do 22\.10\., 14:00/)).toBeInTheDocument()
     expect(screen.queryByText(/erledigt am/)).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Wiederherstellen' }))
+    await user.click(screen.getByRole('button', { name: 'Zahnarzt wiederherstellen' }))
     expect(await screen.findByRole('status')).toHaveTextContent(
       'Zurück in Privat. Termin bleibt im Kalender.',
     )

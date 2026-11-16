@@ -85,3 +85,13 @@
 .notice {
   color: var(--color-text-muted);
 }
+
+.heading {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+}
+
+.tasks {
+  margin-top: var(--space);
+}

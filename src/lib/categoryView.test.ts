@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { Category, Item } from '../data/types'
-import { archiveItems, countByCategory, itemsOfCategory } from './categoryView'
+import type { Category, Item, Project } from '../data/types'
+import {
+  activeProjectsOf,
+  archivedStepsOf,
+  archiveItems,
+  completedProjects,
+  countByCategory,
+  itemsOfCategory,
+} from './categoryView'
 
 const make = (id: string, patch: Partial<Item> = {}): Item => ({
   id,
@@ -84,5 +91,58 @@ describe('archiveItems', () => {
       make('fremd', { completedAt: '2026-10-10T10:00:00+02:00' }),
     ]
     expect(archiveItems(items, 'erledigt').map((i) => i.id)).toEqual(['neu', 'alt', 'ohne'])
+  })
+})
+
+describe('Projekte in Ablagen', () => {
+  const project = (id: string, patch: Partial<Project> = {}): Project => ({
+    id,
+    title: id,
+    notes: '',
+    categoryId: 'privat',
+    status: 'aktiv',
+    series: [],
+    createdAt: '2026-10-01T10:00:00+02:00',
+    updatedAt: '2026-10-01T10:00:00+02:00',
+    completedAt: null,
+    ...patch,
+  })
+
+  it('itemsOfCategory blendet Schritte bekannter Projekte aus', () => {
+    const items = [make('a'), make('b', { projectId: 'p1' }), make('c', { projectId: 'fremd' })]
+    expect(itemsOfCategory(items, 'privat', '', [project('p1')]).map((i) => i.id)).toEqual([
+      'a',
+      'c',
+    ])
+  })
+
+  it('activeProjectsOf: aktive der Ablage nach Titel', () => {
+    const projects = [
+      project('z'),
+      project('a'),
+      project('e', { status: 'erledigt' }),
+      project('o', { categoryId: 'arbeit' }),
+    ]
+    expect(activeProjectsOf(projects, 'privat').map((p) => p.id)).toEqual(['a', 'z'])
+  })
+
+  it('completedProjects: neueste zuerst; archiveItems blendet mitarchivierte Schritte aus', () => {
+    const projects = [
+      project('p1', { status: 'erledigt', completedAt: '2026-10-02T10:00:00+02:00' }),
+      project('p2', { status: 'erledigt', completedAt: '2026-10-05T10:00:00+02:00' }),
+      project('p3'),
+    ]
+    expect(completedProjects(projects).map((p) => p.id)).toEqual(['p2', 'p1'])
+    const archived = (id: string, patch: Partial<Item>) =>
+      make(id, { categoryId: 'erledigt', status: 'erledigt', ...patch })
+    const items = [
+      archived('s1', { projectId: 'p1', archivedWithProject: true, projectOrder: 2 }),
+      archived('s0', { projectId: 'p1', archivedWithProject: true, projectOrder: 1 }),
+      archived('single', { projectId: 'p1' }),
+      archived('x', {}),
+    ]
+    expect(archivedStepsOf(projects[0], items, 'erledigt').map((i) => i.id)).toEqual(['s0', 's1'])
+    expect(archiveItems(items, 'erledigt', projects).map((i) => i.id)).toEqual(['single', 'x'])
+    expect(archiveItems(items, 'erledigt').length).toBe(4)
   })
 })

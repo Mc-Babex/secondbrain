@@ -1,17 +1,10 @@
 import { pathToFileURL } from 'node:url'
 import { isObj, type Item } from '../../src/data/types'
 import { readRepoFile } from './dataRepo'
-import { isPlanFile, type PlanEntry, type PlanFile } from './files'
+import { isPlanFile, type PlanEntry } from './files'
 import { dataDirOrResult, printResult, type LaufResult } from './git'
 import { BACKUP_DIR, type TestCaseMap } from './testdaten'
-import {
-  existingIdOf,
-  loadTestSpec,
-  testSetFromArgs,
-  type ExpectedItem,
-  type TestCase,
-  type TestSpec,
-} from './testspec'
+import { loadTestSpec, testSetFromArgs, type ExpectedItem, type TestCase } from './testspec'
 
 const isCaseMap = (v: unknown): v is TestCaseMap =>
   isObj(v) &&
@@ -123,23 +116,6 @@ export function planProblems(entries: readonly PlanEntry[], knownIds: readonly s
   return out
 }
 
-/** Abweichungen bei vorhandenen Aufgaben, die der Lauf einplanen soll (SPEC §8.4 e). */
-export function existingProblems(spec: TestSpec, plan: PlanFile): string[] {
-  const out: string[] = []
-  ;(spec.existingItems ?? []).forEach((e, index) => {
-    if (e.expectSchedule === undefined) return
-    const planned = plan.existing?.find((x) => x.itemId === existingIdOf(index))
-    const expected = e.expectSchedule
-    if (!planned) out.push(`Vorhanden „${e.title}“: kein Termin statt ${expected.start}`)
-    else if (planned.start !== expected.start || planned.durationMin !== expected.durationMin) {
-      out.push(
-        `Vorhanden „${e.title}“: Zeit ${planned.start} (${planned.durationMin} Min.) statt ${expected.start} (${expected.durationMin} Min.)`,
-      )
-    }
-  })
-  return out
-}
-
 const shorten = (text: string): string => (text.length > 40 ? `${text.slice(0, 40)}…` : text)
 
 async function loadJson(dir: string, paths: string[]): Promise<unknown> {
@@ -193,10 +169,8 @@ export async function runVergleich(options: {
     spec.cases.flatMap((c) => map.cases.find((m) => m.nr === c.nr)?.inboxId ?? []),
   )
   for (const problem of structure) lines.push(`✗ ${problem}`)
-  const existing = existingProblems(spec, plan)
-  for (const problem of existing) lines.push(`✗ ${problem}`)
   lines.push(`ERGEBNIS: ${passed}/${spec.cases.length}`)
-  const ok = passed === spec.cases.length && structure.length === 0 && existing.length === 0
+  const ok = passed === spec.cases.length && structure.length === 0
   return { exitCode: ok ? 0 : 1, lines }
 }
 

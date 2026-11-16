@@ -1,8 +1,7 @@
 // Reine Logik von `lauf:anwenden`: aus plan.json + Termin-IDs den neuen Stand des Daten-Repos bauen.
 import { defaultCategories } from '../../src/data/defaults'
-import { isItem, isObj, normalizeItem, type Item } from '../../src/data/types'
-import type { EventIdsFile, PlanEntry, PlanExisting, PlanFile } from './files'
-import { isPhaseEItem } from '../../src/lib/sortWork'
+import { isObj, type Item } from '../../src/data/types'
+import type { EventIdsFile, PlanEntry, PlanFile } from './files'
 import {
   validateDataRepo,
   validateLastRunFile,
@@ -16,6 +15,8 @@ export interface LastRun {
   finishedAt: string
   processed: number
   itemIds: string[]
+  /** In diesem Lauf angelegte Projekte (SPEC §3.8); fehlt, wenn keine. */
+  projectIds?: string[]
   skipped: { inboxId: string; message: string }[]
   errors: { inboxId: string | null; message: string }[]
 }
@@ -40,13 +41,13 @@ export type ApplyResult =
       writes: FileWrite[]
       deletes: string[]
       lastRun: LastRun
-      scheduledExisting: number
     }
   | { ok: false; errors: string[] }
 
 const CATEGORIES_PATH = 'categories.json'
 const LAST_RUN_PATH = 'runs/last.json'
 const inboxPath = (id: string): string => `inbox/${id}.json`
+const projectPath = (id: string): string => `projects/${id}.json`
 const itemPath = (id: string): string => `items/${id}.json`
 
 type ErrorList = LastRun['errors']
@@ -75,9 +76,8 @@ interface Collected {
   writes: Map<string, unknown>
   deletes: string[]
   processed: number
-  scheduledExisting: number
-  existingProblems: number
   itemIds: string[]
+  projectIds: string[]
   skipped: LastRun['skipped']
   eventErrors: ErrorList
   protectErrors: ErrorList
@@ -90,7 +90,8 @@ interface Context {
   categoriesChanged: boolean
   inbox: Map<string, RepoFile>
   existingItems: Set<string>
-  itemFiles: Map<string, RepoFile>
+  existingProjects: Set<string>
+  activeProjects: Set<string>
 }
 
 function createdEventsOf(entry: PlanEntry, ctx: Context): string[] {
@@ -107,6 +108,17 @@ function protectionProblem(entry: PlanEntry, ctx: Context): string | null {
   const clash = entry.items.find((i) => ctx.existingItems.has(i.id))
   if (clash)
     return `Eintrag ${entry.inboxId} wurde ausgelassen: items/${clash.id}.json gibt es schon.`
+  const projectClash = entry.newProject && ctx.existingProjects.has(entry.newProject.id)
+  if (entry.newProject && projectClash) {
+    return `Eintrag ${entry.inboxId} wurde ausgelassen: projects/${entry.newProject.id}.json gibt es schon.`
+  }
+  const missing = entry.items.find(
+    (i) =>
+      i.projectId && i.projectId !== entry.newProject?.id && !ctx.activeProjects.has(i.projectId),
+  )
+  if (missing) {
+    return `Eintrag ${entry.inboxId} wurde ausgelassen: Das Projekt ${missing.projectId} gibt es nicht mehr oder es ist abgeschlossen.`
+  }
   if (entry.result === 'ok' && entry.newCategory && !ctx.categories) {
     return `Eintrag ${entry.inboxId} wurde ausgelassen: categories.json ist ungültig, die neue Ablage kann nicht angelegt werden.`
   }
@@ -141,48 +153,12 @@ function applyOk(entry: PlanEntry, ctx: Context): void {
     out.writes.set(itemPath(item.id), written)
     out.itemIds.push(item.id)
   }
+  if (entry.newProject) {
+    out.writes.set(projectPath(entry.newProject.id), entry.newProject)
+    out.projectIds.push(entry.newProject.id)
+  }
   out.deletes.push(inboxPath(entry.inboxId))
   out.processed++
-}
-
-/** Vorhandene Aufgabe (8.4 e): nur `schedule` + `updatedAt` ergänzen; geänderte Aufgaben bleiben unangetastet. */
-function applyExisting(plan: PlanExisting, ctx: Context): void {
-  const { out, input } = ctx
-  const created = input.eventIds.created.find((c) => c.itemId === plan.itemId)
-  const failed = input.eventIds.failed.find((f) => f.itemId === plan.itemId)
-  const orphan = created
-    ? ` Der angelegte Kalendertermin (ID ${created.eventId}) ist verwaist.`
-    : ''
-  const fail = (message: string): void => {
-    out.protectErrors.push({ inboxId: null, message })
-    out.existingProblems++
-  }
-
-  const file = ctx.itemFiles.get(plan.itemId)
-  const data = file?.data
-  if (!file || file.parseError !== undefined || !isObj(data) || !isItem(data)) {
-    return fail(`Aufgabe „${plan.title}“ gibt es nicht mehr und wurde nicht eingeplant.${orphan}`)
-  }
-  if (!isPhaseEItem(normalizeItem(data))) {
-    return fail(
-      `Aufgabe „${plan.title}“ wurde inzwischen geändert (erledigt, eingeplant oder nicht mehr wichtig) und blieb unverändert.${orphan}`,
-    )
-  }
-  if (failed || !created) {
-    const reason = failed ? failed.message : 'Es wurde keine Termin-ID gemeldet.'
-    return fail(`Kalendertermin für „${plan.title}“ konnte nicht angelegt werden: ${reason}`)
-  }
-  out.writes.set(itemPath(plan.itemId), {
-    ...data,
-    schedule: {
-      start: plan.start,
-      durationMin: plan.durationMin,
-      calendarEventId: created.eventId,
-    },
-    updatedAt: input.now,
-  })
-  out.itemIds.push(plan.itemId)
-  out.scheduledExisting++
 }
 
 function applySortError(entry: PlanEntry, ctx: Context): void {
@@ -220,6 +196,7 @@ function projected(
     inbox: fold(repo.inbox, 'inbox'),
     items: fold(repo.items, 'items'),
     suggestions: repo.suggestions,
+    projects: fold(repo.projects, 'projects'),
     categories: single(CATEGORIES_PATH, repo.categories),
     settings: repo.settings,
     lastRun: single(LAST_RUN_PATH, repo.lastRun),
@@ -234,9 +211,8 @@ export function buildApply(input: ApplyInput): ApplyResult {
     writes: new Map(),
     deletes: [],
     processed: 0,
-    scheduledExisting: 0,
-    existingProblems: 0,
     itemIds: [],
+    projectIds: [],
     skipped: [],
     eventErrors: [],
     protectErrors: [],
@@ -252,8 +228,15 @@ export function buildApply(input: ApplyInput): ApplyResult {
     existingItems: new Set(
       input.repo.items.map((f) => f.path.slice('items/'.length, -'.json'.length)),
     ),
-    itemFiles: new Map(
-      input.repo.items.map((f) => [f.path.slice('items/'.length, -'.json'.length), f]),
+    existingProjects: new Set(
+      input.repo.projects.map((f) => f.path.slice('projects/'.length, -'.json'.length)),
+    ),
+    activeProjects: new Set(
+      input.repo.projects.flatMap((f) =>
+        isObj(f.data) && f.data.status === 'aktiv' && typeof f.data.id === 'string'
+          ? [f.data.id]
+          : [],
+      ),
     ),
   }
 
@@ -267,12 +250,10 @@ export function buildApply(input: ApplyInput): ApplyResult {
     } else if (entry.result === 'ok') applyOk(entry, ctx)
     else applySortError(entry, ctx)
   }
-  for (const existing of input.plan.existing ?? []) applyExisting(existing, ctx)
   if (ctx.categoriesChanged) out.writes.set(CATEGORIES_PATH, ctx.categories)
 
-  const existingNotes =
-    out.existingProblems + input.plan.errors.filter((e) => e.inboxId === null).length
-  const writesRun = out.processed + out.skipped.length + out.scheduledExisting + existingNotes > 0
+  const planNotes = input.plan.errors.filter((e) => e.inboxId === null).length
+  const writesRun = out.processed + out.skipped.length + planNotes > 0
   const writtenPaths = new Set([...out.writes.keys(), ...(writesRun ? [LAST_RUN_PATH] : [])])
   const after = validateDataRepo(projected(input.repo, out.writes, out.deletes))
   const own = after.filter((e) => writtenPaths.has(e.path) && e.path !== LAST_RUN_PATH)
@@ -286,6 +267,7 @@ export function buildApply(input: ApplyInput): ApplyResult {
     finishedAt: input.now,
     processed: out.processed,
     itemIds: out.itemIds,
+    ...(out.projectIds.length > 0 ? { projectIds: out.projectIds } : {}),
     skipped: out.skipped,
     errors: [...input.plan.errors, ...out.eventErrors, ...out.protectErrors, ...existing],
   }
@@ -300,6 +282,5 @@ export function buildApply(input: ApplyInput): ApplyResult {
     writes,
     deletes: out.deletes,
     lastRun,
-    scheduledExisting: out.scheduledExisting,
   }
 }

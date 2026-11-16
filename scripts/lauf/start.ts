@@ -4,9 +4,12 @@ import { pathToFileURL } from 'node:url'
 import {
   isItem,
   isObj,
+  isProject,
   normalizeItem,
+  normalizeProject,
   type Category,
   type Item,
+  type Project,
   type Settings,
 } from '../../src/data/types'
 import { TIME_ZONE, toIso, zonedParts } from '../../src/lib/time'
@@ -33,7 +36,6 @@ import {
   writeJsonFile,
 } from './dataRepo'
 import { hasSortWork } from '../../src/lib/sortWork'
-import { maxBlockMin, phaseEItems, type PhaseEItem } from './plan'
 import { validateDataRepo, validateInboxFields, type RepoFile } from './validate'
 
 export const EXIT_INVALID_LEFTOVERS = 3
@@ -91,6 +93,57 @@ export function eventRange(now: Date): { from: string; to: string } {
   }
 }
 
+/** Ein aktives Projekt für Claude: Notiz gekürzt, offene Schritte als Titel in Reihenfolge. */
+export interface ProjectContext {
+  id: string
+  title: string
+  categoryId: string
+  notes: string
+  steps: string[]
+}
+
+const PROJECT_NOTES_MAX = 200
+
+const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim()
+
+function shorten(text: string): string {
+  const line = oneLine(text)
+  return line.length > PROJECT_NOTES_MAX ? `${line.slice(0, PROJECT_NOTES_MAX)}…` : line
+}
+
+/** Aktive Projekte samt offenen Schritten (nach `projectOrder`, dann `createdAt`). */
+export function projectContext(
+  projects: readonly Project[],
+  items: readonly Item[],
+): ProjectContext[] {
+  return projects
+    .filter((p) => p.status === 'aktiv')
+    .map((p) => ({
+      id: p.id,
+      title: p.title,
+      categoryId: p.categoryId,
+      notes: shorten(p.notes),
+      steps: items
+        .filter((i) => i.projectId === p.id && i.type === 'aufgabe' && i.status === 'offen')
+        .sort(
+          (a, b) =>
+            (a.projectOrder ?? Infinity) - (b.projectOrder ?? Infinity) ||
+            Date.parse(a.createdAt) - Date.parse(b.createdAt),
+        )
+        .map((i) => i.title),
+    }))
+}
+
+function projectLines(projects: readonly ProjectContext[]): string[] {
+  if (projects.length === 0) return ['Aktive Projekte: keine']
+  const lines = ['Aktive Projekte (id | Titel | Ablage-ID | Notiz; darunter die offenen Schritte):']
+  for (const p of projects) {
+    lines.push(`- ${p.id} | ${p.title} | ${p.categoryId} | ${p.notes}`)
+    for (const step of p.steps) lines.push(`    Schritt: ${step}`)
+  }
+  return lines
+}
+
 export interface ContextInput {
   now: Date
   settings: Settings
@@ -98,8 +151,8 @@ export interface ContextInput {
   inbox: readonly InboxContextEntry[]
   /** Anzahl offener Einträge, die diesen Lauf nicht mehr bekommen. */
   remaining?: number
-  /** Vorhandene wichtige Aufgaben ohne Termin (SPEC §8.4 e). */
-  toSchedule?: readonly PhaseEItem[]
+  /** Aktive Projekte mit ihren offenen Schritten (SPEC §8.3 Regel 9). */
+  projects?: readonly ProjectContext[]
   ignored?: readonly string[]
 }
 
@@ -115,7 +168,7 @@ export function buildContext({
   categories,
   inbox,
   remaining = 0,
-  toSchedule = [],
+  projects = [],
   ignored = [],
 }: ContextInput): string[] {
   const range = eventRange(now)
@@ -138,12 +191,7 @@ export function buildContext({
     const noun = remaining === 1 ? 'weiterer Eintrag bleibt' : 'weitere Einträge bleiben'
     lines.push(`Hinweis: ${remaining} ${noun} für den nächsten Lauf.`)
   }
-  if (toSchedule.length > 0) {
-    lines.push('Einzuplanende Aufgaben (id | Titel | Dauer; keine Entscheidung nötig):')
-    for (const { item, durationMin } of toSchedule) {
-      lines.push(`- ${item.id} | ${item.title} | ${durationMin} Min.`)
-    }
-  }
+  lines.push(...projectLines(projects))
   for (const path of ignored) lines.push(`Hinweis: ${path} ist ungültig und wird ignoriert.`)
   return lines
 }
@@ -253,7 +301,7 @@ export async function runStart(options: LaufOptions): Promise<LaufResult> {
     inboxIds: entries.map((e) => e.id),
   })
   const items: Item[] = repo.items.flatMap((f) => (isItem(f.data) ? [normalizeItem(f.data)] : []))
-  if (!hasSortWork(openEntries, items)) return { exitCode: 0, lines: ['LEER'] }
+  if (!hasSortWork(openEntries)) return { exitCode: 0, lines: ['LEER'] }
 
   try {
     const categories = (await readCategories(dir)).categories
@@ -266,7 +314,10 @@ export async function runStart(options: LaufOptions): Promise<LaufResult> {
         categories,
         inbox: entries,
         remaining: openEntries.length - entries.length,
-        toSchedule: phaseEItems(items, maxBlockMin(settings.planningWindow)),
+        projects: projectContext(
+          repo.projects.flatMap((f) => (isProject(f.data) ? [normalizeProject(f.data)] : [])),
+          items,
+        ),
         ignored,
       }),
     }

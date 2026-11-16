@@ -58,19 +58,10 @@ async function readJsonFiles(dir: string): Promise<unknown[]> {
   return result
 }
 
-/** SPEC §6.3/§8.2: Inbox ohne `sortError` oder offene, wichtige Aufgabe ohne Termin. */
+/** SPEC §6.3/§8.2 (Phase 9): nur Inbox-Einträge ohne `sortError` sind Arbeit. */
 export async function hasWork(dir: string): Promise<boolean> {
   const inbox = await readJsonFiles(join(dir, 'inbox'))
-  if (inbox.some((entry) => isObject(entry) && !('sortError' in entry))) return true
-  const items = await readJsonFiles(join(dir, 'items'))
-  return items.some(
-    (item) =>
-      isObject(item) &&
-      item.type === 'aufgabe' &&
-      item.status === 'offen' &&
-      item.important === true &&
-      (item.schedule === null || item.schedule === undefined),
-  )
+  return inbox.some((entry) => isObject(entry) && !('sortError' in entry))
 }
 
 function timeOf(value: unknown): number | null {

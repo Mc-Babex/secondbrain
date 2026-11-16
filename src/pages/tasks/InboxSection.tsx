@@ -1,6 +1,14 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import form from '../../components/Form.module.css'
 import { Dialog } from '../../components/Dialog'
+import { GtdFields } from '../../components/GtdFields'
+import {
+  emptyGtdForm,
+  gtdFields,
+  projectAfterCategoryChange,
+  type GtdForm,
+} from '../../components/gtdForm'
+import { useProjects } from '../../data/hooks'
 import { deleteInboxEntry, fileInboxEntry } from '../../data/repository'
 import type { Category, InboxEntry, ItemType } from '../../data/types'
 import { formatDateTime } from '../../lib/format'
@@ -94,14 +102,37 @@ function FileInboxDialog({ entry, categories, onClose }: FileInboxDialogProps) {
   const [categoryId, setCategoryId] = useState(
     (choices.find((c) => c.kind === 'normal') ?? choices[0])?.id ?? '',
   )
+  const [gtdForm, setGtdForm] = useState<GtdForm>(emptyGtdForm)
+  const projects = useProjects()
   const [error, setError] = useState<string | null>(null)
+
+  const changeCategory = (id: string): void => {
+    setCategoryId(id)
+    setGtdForm((prev) => ({
+      ...prev,
+      projectId: projectAfterCategoryChange(prev.projectId, id, projects),
+    }))
+  }
 
   const onSubmit = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
     if (title.trim() === '' || categoryId === '') return
     try {
       setError(null)
-      await fileInboxEntry(entry.id, { type, title: title.trim(), notes: notes.trim(), categoryId })
+      await fileInboxEntry(entry.id, {
+        type,
+        title: title.trim(),
+        notes: notes.trim(),
+        categoryId,
+        ...(type === 'aufgabe'
+          ? {
+              important: gtdForm.important,
+              durationMin: gtdForm.duration === '' ? null : Number(gtdForm.duration),
+              ...gtdFields(gtdForm),
+              ...(gtdForm.projectId === '' ? {} : { projectId: gtdForm.projectId }),
+            }
+          : {}),
+      })
       onClose()
     } catch {
       setError('Das hat nicht geklappt. Bitte versuche es erneut.')
@@ -146,7 +177,7 @@ function FileInboxDialog({ entry, categories, onClose }: FileInboxDialogProps) {
           <select
             className={form.input}
             value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
+            onChange={(e) => changeCategory(e.target.value)}
           >
             {choices.map((c) => (
               <option key={c.id} value={c.id}>
@@ -155,6 +186,14 @@ function FileInboxDialog({ entry, categories, onClose }: FileInboxDialogProps) {
             ))}
           </select>
         </label>
+        {type === 'aufgabe' && (
+          <GtdFields
+            value={gtdForm}
+            onChange={(patch) => setGtdForm((prev) => ({ ...prev, ...patch }))}
+            categoryId={categoryId}
+            projects={projects}
+          />
+        )}
         {error && (
           <p className={form.error} role="alert">
             {error}

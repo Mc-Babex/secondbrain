@@ -53,6 +53,22 @@ describe('localStore (atomar)', () => {
     ])
   })
 
+  it('queuedAt steigt streng, auch bei gleicher Uhrzeit', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2030-01-01T10:00:00Z'))
+      const paths = ['items/a.json', 'items/b.json', 'items/c.json', 'items/d.json']
+      for (const path of paths) await putFileLocal(path, { v: 1 })
+      const stamps = (await getOutbox())
+        .sort((x, y) => (x.queuedAt < y.queuedAt ? -1 : 1))
+        .map((e) => [e.path, e.queuedAt])
+      expect(stamps.map(([path]) => path)).toEqual(paths)
+      expect(new Set(stamps.map(([, at]) => at)).size).toBe(paths.length)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('removeOutboxEntry entfernt nur bei passendem queuedAt', async () => {
     await putFileLocal('items/a.json', { v: 1 })
     const first = (await getOutbox())[0]
