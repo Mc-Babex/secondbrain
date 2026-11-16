@@ -1,9 +1,9 @@
 # SecondBrain – Spezifikation
 
-Stand: 2026-10-28 · Status: **freigegeben** (Phase 5 „Cloud-Lauf per Knopf“ freigegeben 2026-10-19;
+Stand: 2026-11-16 · Status: **freigegeben** (Phase 5 „Cloud-Lauf per Knopf“ freigegeben 2026-10-19;
 Mail-Phase gestrichen und Phase 6 „iPhone“ freigegeben 2026-10-19; Phase 7 Teil A „Fehler und Feinschliff“
 und Teil B „Vollwertiger Kalender“ freigegeben 2026-10-20; Phase 8 „Testphase mit weiteren Nutzern“
-freigegeben 2026-10-28)
+freigegeben 2026-10-28; Phase 9 „Aufgabenseite nach GTD“ freigegeben 2026-11-16)
 
 Persönliche App zum schnellen Erfassen von Gedanken, Aufgaben und Terminen. Erfasstes landet
 im Eingangskorb; ein Claude-Lauf (außerhalb der App, in der Cloud, per Knopf gestartet, optional) sortiert es
@@ -90,6 +90,7 @@ Der Name ist frei wählbar; neue Nutzer legen es aus der öffentlichen Vorlage `
 secondbrain.json       Formatversion (§3.11); Markerdatei, an der die Skripte das Daten-Repo erkennen
 inbox/<id>.json        unsortierte Erfassungen (App schreibt, Claude-Lauf liest + löscht)
 items/<id>.json        einsortierte Einträge (Aufgaben, Notizen, Termine, Einkauf)
+projects/<id>.json     Projekte inkl. Schritt-Serien (Phase 9, §3.12; App schreibt, Claude-Lauf liest und legt neue an)
 suggestions/<id>.json  Vorschläge von Claude (Claude schreibt, App nimmt an/lehnt ab)
 categories.json        Ablagen
 settings.json          geräteübergreifende Einstellungen (OHNE Zugangsdaten)
@@ -161,8 +162,8 @@ Einträge mit `sortError` überspringt der Lauf künftig; der Nutzer sortiert si
 | `notes` | string | Freitext, optional |
 | `categoryId` | string | Ablage (siehe 3.5) |
 | `status` | `"offen"` \| `"erledigt"` | Notizen sind immer `offen` |
-| `important` | boolean | „wichtig" → wird vom Claude-Lauf bevorzugt eingeplant |
-| `durationMin` | number \| null | geschätzte Dauer, 15 … Planungsfenster eines Tages |
+| `important` | boolean | **★ Fokus** (Phase 9; früher „wichtig“). Löst **keine** automatische Einplanung aus |
+| `durationMin` | number \| null | geschätzte Dauer in Minuten, ganze Zahl ≥ 1 (Phase 9; bisher ab 15) |
 | `schedule` | object \| null | eingeplanter Kalendertermin; `null` = nicht im Kalender |
 | `originalCategoryId` | string \| null | Ablage vor dem Archivieren nach „Erledigt" |
 | `checked` | boolean | nur Einkaufsliste: abgehakt |
@@ -170,6 +171,25 @@ Einträge mit `sortError` überspringt der Lauf künftig; der Nutzer sortiert si
 
 **Überfällig** = `type: "aufgabe"`, `status: "offen"`, `schedule != null` und
 `schedule.start + schedule.durationMin < jetzt`.
+
+**GTD-Felder (Phase 9, nur `type: "aufgabe"`, alle optional):**
+
+| Feld | Typ | Bedeutung | fehlt ⇒ |
+|---|---|---|---|
+| `gtd` | `"naechster-schritt"` \| `"warten"` \| `"irgendwann"` | gespeicherter GTD-Status | `"naechster-schritt"` |
+| `dueDate` | `"YYYY-MM-DD"` \| null | „fällig bis“ (nur Datum, Europe/Berlin) | `null` |
+| `waiting` | `{ "person": string, "since": "YYYY-MM-DD", "followUpOn": "YYYY-MM-DD" \| null }` \| null | nur bei `gtd: "warten"`: Person/Was, seit, nachhaken am | `person` `""`, `since` = Datum von `updatedAt`, `followUpOn` `null` |
+| `projectId` | string \| null | Projekt (§3.12), zu dem der Schritt gehört | `null` |
+| `projectOrder` | number | Reihenfolge im Projekt (aufsteigend, Kommazahlen erlaubt) | nach `createdAt` hinter allen mit `projectOrder` |
+| `seriesId`, `seriesNumber` | string, number | nur Serien-Instanzen (§3.12) | – |
+| `archivedWithProject` | boolean | beim Projektabschluss mitarchiviert (für Wiederherstellen) | `false` |
+| `v` | number | `2` = von einer App ab Phase 9 geschrieben | – |
+
+- **Angezeigter Status** einer offenen Aufgabe: `schedule != null` ⇒ **Termin**, sonst der Wert aus `gtd`
+  (**Nächster Schritt**, **Warte auf**, **Irgendwann**). „Termin“ wird nie gespeichert; wird der Termin entfernt, gilt
+  wieder `gtd`.
+- **⚡ < 2 Min.** (2-Minuten-Regel) bei `durationMin ≤ 2`. Einplanen in den Kalender belegt immer mindestens 15 Min.
+- Notizen, Termine (`type: "termin"`) und Einkaufsartikel haben keinen GTD-Status; die Felder fehlen dort.
 
 ### 3.4 `suggestions/<id>.json` – Vorschlag von Claude
 
@@ -210,7 +230,8 @@ Einträge mit `sortError` überspringt der Lauf künftig; der Nutzer sortiert si
 - **Umbenennen** ändert nur `name` (und ggf. `description`), nie die `id` – bei allen Ablagen erlaubt.
 - **Löschen** (nicht `einkauf`/`archiv`): alle Einträge mit `categoryId` dieser Ablage wandern in eine
   gewählte Zielablage (Standard `privat`); archivierte Einträge mit `originalCategoryId` dieser Ablage
-  bekommen die Zielablage als `originalCategoryId`. Danach wird die Ablage aus `categories.json` entfernt.
+  bekommen die Zielablage als `originalCategoryId`; Projekte (§3.12) dieser Ablage wandern ebenfalls in die Zielablage.
+  Danach wird die Ablage aus `categories.json` entfernt.
 
 ### 3.9 Einkaufsartikel – gleiche Artikel
 Zwei Einkaufsartikel sind **gleich**, wenn ihre Titel nach Kleinschreibung, Trimmen und Zusammenfassen
@@ -265,13 +286,12 @@ Commits; nur nötig mit Claude-Lauf):
 | Feld | Bedeutung |
 |---|---|
 | `processed` | Anzahl einsortierter Inbox-Einträge (ohne `skipped`) |
-| `itemIds` | alle in diesem Lauf angelegten Einträge (eine Erfassung kann mehrere ergeben, z. B. Einkauf) und vorhandene Aufgaben, die er nach §8.4 e eingeplant hat |
+| `itemIds` | alle in diesem Lauf angelegten Einträge (eine Erfassung kann mehrere ergeben, z. B. Einkauf) |
+| `projectIds` | (Phase 9, optional) in diesem Lauf angelegte Projekte |
 | `skipped` | in diesem Lauf neu mit `sortError` im Eingangskorb belassene Einträge |
 | `errors` | sonstige Fehler (`inboxId` darf `null` sein); der Lauf macht trotzdem weiter |
 
-Wird nur geschrieben, wenn der Lauf mindestens einen Inbox-Eintrag bearbeitet, eine vorhandene Aufgabe
-eingeplant oder einen Fehler zu melden hat. Findet sich für eine vorhandene wichtige Aufgabe (§8.4 e) kein
-Slot, versucht es jeder folgende Lauf erneut.
+Wird nur geschrieben, wenn der Lauf mindestens einen Inbox-Eintrag bearbeitet oder einen Fehler zu melden hat.
 
 ### 3.10 `runs/started.json` und `runs/trigger.json` – Start per Knopf
 
@@ -316,6 +336,88 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
   beschrieben (wer migriert, wann, idempotent, ohne Datenverlust); vorher Freigabe über diese SPEC.
 - Die Skripte erkennen das Daten-Repo an `secondbrain.json` (Reihenfolge: `--daten`, `SECONDBRAIN_DATEN`, Nachbarordner
   mit `secondbrain.json`, Nachbarordner `secondbrain-daten`).
+- **Phase 9 bleibt bei `format: 1`** (nur neue optionale Felder und der neue Ordner `projects/`). Ein `format: 2` hätte
+  den Claude-Lauf von `stable` und nicht aktualisierte Apps schon während des Vorschau-Tests gesperrt (Entscheidung des
+  Nutzers, 2026-11-16).
+
+### 3.12 `projects/<id>.json` – Projekte (Phase 9)
+
+```json
+{
+  "id": "20261116-090000-p7a2",
+  "title": "Analysis 1",
+  "notes": "",
+  "categoryId": "studium",
+  "status": "aktiv",
+  "series": [
+    {
+      "id": "s1",
+      "titlePattern": "Übungsblatt {Nr}",
+      "every": 1,
+      "weekday": 1,
+      "startDate": "2026-10-19",
+      "endDate": "2027-02-12",
+      "count": null,
+      "dueWeekday": 5,
+      "durationMin": 180,
+      "state": "aktiv",
+      "lastNumber": 4,
+      "lastDate": "2026-11-09"
+    }
+  ],
+  "createdAt": "2026-11-16T09:00:00+01:00",
+  "updatedAt": "2026-11-16T09:00:00+01:00",
+  "completedAt": null,
+  "v": 2
+}
+```
+- Projekt = Ziel mit mehreren Schritten, gehört zu einer Ablage (`categoryId`, nie Einkauf/Archiv). `status`:
+  `"aktiv"` | `"erledigt"`. `id` im ID-Format aus 3.1. Unbekannte Felder bleiben erhalten. `series` fehlt ⇒ `[]`.
+- **Schritte** = Aufgaben mit `projectId` (§3.3), sortiert nach `projectOrder`. **Nächster Schritt des Projekts** =
+  offener Schritt mit kleinstem `projectOrder` (gleich welcher angezeigte Status). Aktives Projekt ohne offenen
+  Schritt ⇒ Warnung „⚠ Nächsten Schritt festlegen“. Fortschritt x/y = erledigte / alle Schritte.
+- **Abschließen:** `status: "erledigt"`, `completedAt`; alle offenen Schritte werden wie ✓ Erledigt archiviert und
+  bekommen `archivedWithProject: true`; Serien → `state: "beendet"`. **Wiederherstellen** (aus „Erledigt“): Projekt
+  `aktiv`, `completedAt: null`, genau die Schritte mit `archivedWithProject: true` wieder offen (Feld entfällt); Serien
+  bleiben beendet.
+- **Ablage löschen** (§3.5): Projekte der Ablage wandern mit in die Zielablage.
+- Projekt löschen: nur ohne Schritte (sonst erst abschließen); Bestätigung.
+
+**Schritt-Serien** (`series[]`): `every` 1 = wöchentlich, 2 = alle 2 Wochen; `weekday`/`dueWeekday` 1 = Mo … 7 = So
+(`dueWeekday` optional, `null` = ohne Fälligkeit); Ende über `endDate` **oder** `count` (beide `null` = ohne Ende);
+`durationMin` optional; `state` `"aktiv"` | `"pausiert"` | `"beendet"`; `id` eindeutig im Projekt.
+`lastNumber`/`lastDate` = Nummer und Stichtag der zuletzt angelegten Instanz (anfangs `0` / `null`).
+- **Stichtage:** `startDate` und alle `every` Wochen danach am `weekday` (erster Stichtag = erster `weekday` ab
+  `startDate`), bis einschließlich `endDate` bzw. bis Nummer `count`.
+- **Anlage nur durch die App**, nach jedem erfolgreichen Herunterladen (§4), nie offline. Der Claude-Lauf legt keine
+  Instanzen an. Für jede aktive Serie eines aktiven Projekts:
+  1. `lastNumber`/`lastDate` = jeweils Maximum aus Projektdatei **und** vorhandenen Einträgen mit dieser `seriesId`
+     (auch archivierten).
+  2. Jeder Stichtag mit `lastDate` < Stichtag ≤ heute (Europe/Berlin) ergibt eine Aufgabe (höchstens 10 je Sync, der
+     Rest beim nächsten): Titel = `titlePattern` mit `{Nr}` = `lastNumber + 1` (fortlaufend), `gtd:
+     "naechster-schritt"`, `dueDate` = erster `dueWeekday` ab Stichtag, `durationMin`, `categoryId` des Projekts,
+     `projectId`, `projectOrder` hinter allen vorhandenen Schritten, `seriesId`, `seriesNumber`, `notes: ""`.
+  3. **ID deterministisch:** `<Stichtag YYYYMMDD>-000000-<4 Zeichen a-z0-9 aus einem festen Hash von Projekt-ID,
+     Serien-ID und Stichtag>`. Zwei Geräte erzeugen so dieselbe Datei; existiert sie lokal oder im Repo schon, wird
+     nichts angelegt. Beim Hochladen gilt eine schon vorhandene Remote-Datei als dieselbe Instanz (Konfliktregel §4) –
+     es entsteht nie eine zweite Datei.
+  4. Danach Projektdatei mit neuem `lastNumber`/`lastDate` speichern (Instanzen vor der Projektdatei hochladen).
+- Gelöschte oder erledigte Instanzen entstehen nicht neu (`lastDate`).
+- **Pausieren:** Stichtage während der Pause entfallen; die Nummerierung läuft ohne Lücke weiter. **Fortsetzen** setzt
+  `lastDate` auf gestern (falls größer). **Beenden:** `state: "beendet"`. **Bearbeiten** (Muster, Rhythmus, Start, Ende,
+  Fälligkeit, Dauer) wirkt ab der nächsten Instanz; vorhandene Instanzen bleiben.
+
+### 3.13 Migration auf GTD (Phase 9)
+Reine, idempotente Lese-Funktion, gemeinsam für App und Lauf-Skripte (wie `src/lib/sortWork.ts`):
+- offene Aufgabe ohne `gtd` ⇒ `gtd: "naechster-schritt"` (mit `schedule` erscheint sie als „Termin“);
+- `important: true` ⇒ ist ★ Fokus (keine Umrechnung nötig);
+- Notizen, Einkaufsartikel, Termine (`type: "termin"`) und Erledigtes bleiben unverändert.
+- Die Dateien im Repo werden **nicht** auf einmal umgeschrieben; die migrierte Form wird erst bei der nächsten
+  Änderung eines Eintrags gespeichert (dann mit `"v": 2`). So gibt es kein Massen-Hochladen, keine Konflikte zwischen
+  Geräten, und ältere Apps sehen weiterhin gültige Einträge.
+- **Ältere App-Versionen** und ältere Lauf-Skripte erhalten unbekannte Felder (§3.1) und ignorieren `projects/`. Sie
+  behandeln Projekt-Schritte, Warte-auf- und Irgendwann-Aufgaben als normale offene Aufgaben; dabei geht nichts
+  verloren.
 
 ## 4. Synchronisation & Offline
 
@@ -324,7 +426,7 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
 - Sync läuft bei: App-Start, Rückkehr ins Fenster (`visibilitychange`), `online`-Ereignis,
   nach jeder Änderung (entprellt ~2 s) und alle 5 Minuten.
 - **Hochladen:** Outbox der Reihe nach über die GitHub Contents API (`PUT`/`DELETE` mit `sha`).
-- **Herunterladen:** Verzeichnisse `inbox/`, `items/`, `suggestions/` + `categories.json` +
+- **Herunterladen:** Verzeichnisse `inbox/`, `items/`, `suggestions/`, `projects/` (Phase 9) + `categories.json` +
   `settings.json` + `runs/last.json` (nur lesen, die App schreibt es nie) lesen; nur geänderte Dateien (abweichende `sha`) nachladen.
   `runs/started.json` und `runs/trigger.json` liest die App nur für den Start-Knopf (§6.3), nicht im normalen Sync.
 - **Konflikt** (`409`/`422` wegen veralteter `sha`): Remote-Fassung laden; die Fassung mit dem
@@ -397,28 +499,19 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
 - Nicht verbunden → Knopf „Mit Google verbinden".
 
 ### 6.3 Aufgaben
-Von oben nach unten:
+Von oben nach unten (Phase 9: Abschnitte 1–3 stehen über den Reitern, alles Weitere in den Reitern, siehe 6.3.1):
 1. **Vorschläge von Claude** (nur wenn vorhanden): Text, Begründung, Ziel-Ablage;
    Knöpfe **Annehmen** / **Ablehnen**.
-2. **Überfällig**: überfällige Kalender-Aufgaben mit vier Knöpfen:
-   - **✓ Erledigt** → `status: "erledigt"`, `completedAt` setzen, `originalCategoryId` merken,
-     `categoryId: "erledigt"`. Kalendertermin bleibt als Historie im Kalender (zukünftige Termine: §6.6).
-   - **✗ Nicht erledigt** → automatisch neu einplanen: erster freier Slot ab dem **Tagesanfang**
-     (wie §8.4 c/d: Beginn des Planungsfensters des nächsten Tages, dessen Fenster noch nicht begonnen
-     hat), Dauer = `schedule.durationMin`; Kalendertermin wird dorthin verschoben. Kurze Bestätigung
-     „Neu geplant: Do 22.10., 09:00“. Kein freier Slot in 14 Tagen ⇒ Hinweis, Dialog wie Uhr-Symbol.
-     Ohne Google-Verbindung ⇒ Hinweis „Mit Google verbinden“.
-   - **Uhr-Symbol (Neu planen)** → Dialog Datum, Uhrzeit, Dauer → Kalendertermin wird verschoben.
-   - **– Aus Kalender** → Kalendertermin löschen, `schedule: null`, bleibt in der Ablage.
-3. **Hinweise vom letzten Lauf** (nur wenn `runs/last.json` < 24 h alt ist und `errors` enthält):
+2. **Hinweise vom letzten Lauf** (nur wenn `runs/last.json` < 24 h alt ist und `errors` enthält):
    kurze Liste der Fehlermeldungen. (Die frühere Liste „Neu einsortiert“ entfällt.)
-4. **Eingangskorb** (unsortierte Erfassungen, die der Claude-Lauf noch nicht bearbeitet hat oder nicht
+3. **Eingangskorb** mit Anzahl (unsortierte Erfassungen, die der Claude-Lauf noch nicht bearbeitet hat oder nicht
    einsortieren konnte): je Eintrag „In Ablage…" (wandelt in eine Aufgabe/Notiz in gewählter Ablage um)
    oder Löschen. **„In Ablage…“ übernimmt den Text vollständig (Phase 7):** Titel = erste Zeile; ist sie länger
    als 80 Zeichen, wird sie an einer Wortgrenze auf höchstens 60 Zeichen gekürzt. Alles, was nicht im Titel steht
    (Rest der ersten Zeile und alle weiteren Zeilen), kommt vollständig und ohne Doppelung in `notes`. Titel und
    Notiz (mehrzeilig) sind im Dialog sichtbar und änderbar. Hat ein Eintrag `sortError`, steht dessen `message` als Hinweis am Eintrag.
-   Über der Liste der Knopf **„Jetzt sortieren“** (auch bei leerem Eingangskorb sichtbar, wegen §8.4 e):
+   „In Ablage…“ bietet zusätzlich die GTD-Felder wie der Bearbeiten-Dialog (6.3.2).
+   Über der Liste der Knopf **„Jetzt sortieren“** (auch bei leerem Eingangskorb sichtbar):
    - **Ohne Claude (Phase 8):** Ist `autoSort` (§3.6) `false`, startet nichts (kein Sync, kein Dispatch) und der Knopf
      zeigt ohne Fehlerton den Hinweis „Automatisches Sortieren ist nicht eingerichtet. Einträge über ‚In Ablage…‘
      einsortieren oder in den Einstellungen einrichten.“ (mit Link zu den Einstellungen). Dieselbe Meldung bei
@@ -427,7 +520,8 @@ Von oben nach unten:
      „GitHub in den Einstellungen verbinden.“
    - Zuerst Sync (Outbox hochladen); bleibt etwas ausstehend ⇒ „Noch nicht alles hochgeladen – bitte gleich
      erneut versuchen.“
-   - Keine Inbox-Einträge ohne `sortError` und keine Aufgaben nach §8.4 e ⇒ sofort **„Nichts zu sortieren“**, kein Start.
+   - Keine Inbox-Einträge ohne `sortError` ⇒ sofort **„Nichts zu sortieren“**, kein Start (Phase 9: vorhandene
+     wichtige Aufgaben zählen nicht mehr als Arbeit).
    - Sperre laut `runs/started.json` aktiv (3.10) ⇒ „Sortierung läuft bereits.“
    - Sonst `repository_dispatch` (`event_type: "sortieren"`, `client_payload: { "requestId": … }`) an das Daten-Repo,
      danach `runs/trigger.json` alle 5 s lesen (höchstens 2 Min.), bis die `requestId` passt. Meldungen je `result`:
@@ -440,14 +534,82 @@ Von oben nach unten:
      `startedAt` hat oder 20 Min. vergangen sind. In der Zeit liest die App `runs/last.json` alle 30 s (nur bei
      sichtbarer Seite); danach voller Sync, „Zuletzt sortiert“ aktualisiert sich.
    - Die Sperre gilt auch nach einem Neuladen der App (sie ergibt sich aus `runs/started.json`).
-5. **Alle offenen Aufgaben**, gruppiert nach Ablage (Reihenfolge laut `order`; ohne „Erledigt"
-   und ohne Einkaufsliste). Aufgaben aus `itemIds` des letzten Laufs tragen 24 h lang das
-   Kennzeichen **„neu“**. Je Aufgabe:
-   - Antippen der Checkbox → erledigt (wie ✓ oben).
-   - **Uhr-Symbol** → Dialog Datum, Uhrzeit, Dauer (Vorgabe: nächste volle Viertelstunde im
-     Planungsfenster, Dauer `durationMin` oder 30 Min.) → Google-Kalender-Termin anlegen,
-     `schedule` setzen. Bereits eingeplante Aufgaben zeigen den Termin; Uhr-Symbol = umplanen.
-   - Antippen des Titels → Bearbeiten (Titel, Notizen, wichtig, Dauer, Ablage).
+
+#### 6.3.1 Reiter (Phase 9)
+Unter dem Eingangskorb eine Reiter-Leiste: **Aktuell · Projekte · Warte auf · Irgendwann** (jeweils mit Anzahl, außer
+Aktuell). Wechsel **nur per Tippen** (und Tastatur: Tab/Enter, Pfeiltasten innerhalb der Leiste) – Wischen wechselt
+weiter nur die Seite. Die App merkt sich den gewählten Reiter je Gerät (lokal, nicht im Repo). Passt ohne
+waagerechtes Scrollen ab 360 px Breite (Beschriftung ggf. gekürzt, z. B. „Irgendw.“, voller Name als `aria-label`).
+
+**Gemeinsam für Aufgabenzeilen in allen Reitern:**
+- Checkbox → erledigt: `status: "erledigt"`, `completedAt` setzen, `originalCategoryId` merken, `categoryId` = Archiv
+  (Google-Termin: §6.6). Bei Projekt-Schritten danach Hinweis wie in 6.3.3.
+- **Uhr-Symbol** → Dialog Datum, Uhrzeit, Dauer (Vorgabe: nächste volle Viertelstunde im Planungsfenster, Dauer
+  `durationMin` oder 30 Min., mindestens 15 Min.) → Google-Kalender-Termin anlegen, `schedule` setzen (⇒ Status
+  „Termin“). Eingeplante Aufgaben zeigen den Termin; Uhr-Symbol = umplanen.
+- Antippen des Titels → Bearbeiten (6.3.2).
+- Kennzeichen: ★ (Fokus), ⚡ < 2 Min., „fällig <Tag>“ (überfällig in Warnfarbe), Dauer, Projektname bei Schritten,
+  „neu“ für Aufgaben aus `itemIds` des letzten Laufs (24 h).
+
+**Reiter „Aktuell“**, von oben nach unten:
+1. **★ Fokus** – offene Aufgaben mit `important: true`, außer Status „Irgendwann“; Reihenfolge wie Nächste Schritte.
+   Mehr als 5 ⇒ dezenter Hinweis „Mehr als 5 Aufgaben im Fokus – was davon ist wirklich wichtig?“.
+2. **Heute / Überfällig** – Aufgaben mit Termin heute (auch schon vorbei) und überfällige (§3.3), nach Beginn
+   sortiert. Überfällige haben vier Knöpfe:
+   - **✓ Erledigt** wie die Checkbox. Kalendertermin bleibt als Historie im Kalender.
+   - **✗ Nicht erledigt** → automatisch neu einplanen: erster freier Slot ab dem **Tagesanfang** (§8.4),
+     Dauer = `schedule.durationMin`; Kalendertermin wird dorthin verschoben. Kurze Bestätigung
+     „Neu geplant: Do 22.10., 09:00“. Kein freier Slot in 14 Tagen ⇒ Hinweis, Dialog wie Uhr-Symbol.
+     Ohne Google-Verbindung ⇒ Hinweis „Mit Google verbinden“.
+   - **Uhr-Symbol (Neu planen)** → Dialog Datum, Uhrzeit, Dauer → Kalendertermin wird verschoben.
+   - **– Aus Kalender** → Kalendertermin löschen, `schedule: null` (⇒ wieder gespeicherter GTD-Status).
+3. **Nächste Schritte** – Aufgaben mit Status „Nächster Schritt“ ohne Fokus, gruppiert nach Ablage (Reihenfolge laut
+   `order`, ohne Archiv und Einkauf). Von jedem Projekt erscheint **nur dessen nächster Schritt** (falls er den Status
+   „Nächster Schritt“ hat), mit Projektname. Sortierung: überfällig (`dueDate` < heute) zuerst, dann nach `dueDate`
+   aufsteigend, ohne `dueDate` zuletzt; bei Gleichstand Dauer aufsteigend (ohne Dauer zuletzt), dann `createdAt`.
+   **Zeitfilter** über der Liste: **≤ 15 · ≤ 30 · ≤ 60 Min. · alle** (Standard „alle“, Wahl je Gerät gemerkt); ein
+   Filter blendet Aufgaben mit größerer **oder fehlender** Dauer aus. Gilt nur für diesen Abschnitt.
+4. **Eingeplant (n)** – eingeklappt; offene Aufgaben mit Termin nach heute, nach Beginn sortiert.
+
+Leerer Reiter: kurze Einladung (z. B. „Keine nächsten Schritte. Neues über die Erfassung anlegen.“).
+
+**Reiter „Projekte“:** aktive Projekte gruppiert nach Ablage; je Projekt Titel, Fortschritt x/y (Balken), nächster
+Schritt mit Fälligkeit oder „⚠ Nächsten Schritt festlegen“. Knopf „Neues Projekt“ (Titel, Ablage, Notiz). Antippen ⇒
+Projektansicht (6.3.3).
+
+**Reiter „Warte auf“:** Aufgaben mit Status „Warte auf“, nach `followUpOn` (fällige zuerst), dann `since`. Je Eintrag
+Person/Was (`waiting.person`, Titel), „seit X Tagen“ (ab `waiting.since`), „nachhaken am <Tag>“. Ist `followUpOn` ≤ heute,
+ist der Eintrag deutlich hervorgehoben („nachhaken seit <Tag>“/„heute nachhaken“). Knopf **„Antwort erhalten“** ⇒
+Auswahl **„Erledigt (archivieren)“** (wie Checkbox) oder **„Daraus nächsten Schritt machen“** (`gtd:
+"naechster-schritt"`, `waiting: null`, Bearbeiten-Dialog öffnet sich zum Anpassen des Titels).
+
+**Reiter „Irgendwann“:** Aufgaben mit Status „Irgendwann“, nach Ablage gruppiert, neueste zuerst. Knopf **„Aktivieren“**
+⇒ `gtd: "naechster-schritt"`.
+
+#### 6.3.2 Bearbeiten-Dialog und „In Ablage…“ (Phase 9)
+Für Aufgaben zusätzlich: **Status** (Nächster Schritt · Warte auf · Irgendwann; „Termin“ steht nur als Hinweis da,
+wenn `schedule` gesetzt ist, und entsteht über das Uhr-Symbol), **★ Fokus** (ersetzt „wichtig“), **fällig bis**
+(Datum, löschbar), **Dauer** (Auswahl 2, 5, 10, 15, 30, 45, 60, 90, 120, 180, 240 Min. oder leer), **Projekt** (aktive
+Projekte der gewählten Ablage oder „kein Projekt“; Wechsel der Ablage setzt ein nicht passendes Projekt auf „kein“;
+neuer Schritt wird hinten angehängt), bei „Warte auf“: **Person/Was**, **seit** (Vorgabe heute), **nachhaken am**
+(optional). Wechsel weg von „Warte auf“ setzt `waiting: null`.
+
+#### 6.3.3 Projektansicht (Phase 9)
+Eigene Ansicht mit Zurück-Pfeil (wie eine geöffnete Ablage), erreichbar aus dem Reiter „Projekte“ und von Seite 4:
+- Titel, Ablage, Notiz (bearbeitbar über „Projekt bearbeiten“), Fortschritt.
+- **Schritte** offen in `projectOrder`-Reihenfolge, mit Status-Kennzeichen; je Schritt Knöpfe **↑ ↓** (Reihenfolge
+  ändern, kein Ziehen), Checkbox, Titel antippen ⇒ Bearbeiten. **„Schritt hinzufügen“** (Titel, Dauer optional,
+  hinten angehängt, Status Nächster Schritt). Erledigte Schritte eingeklappt darunter.
+- **Serien:** Liste mit Muster, Rhythmus, Fälligkeit, Ende, zuletzt angelegter Nummer, Zustand. „Serie hinzufügen“ /
+  „Bearbeiten“ (Titelmuster mit `{Nr}`, wöchentlich/alle 2 Wochen, Wochentag, Startdatum, Ende per Datum oder Anzahl,
+  optional „fällig am Wochentag“, optional Dauer, Vorschau der nächsten 3 Instanzen), **Pausieren/Fortsetzen**,
+  **Beenden** (mit Bestätigung).
+- **„Projekt abschließen“** (Bestätigung, §3.12). Ohne Schritte zusätzlich „Projekt löschen“.
+- Ohne offenen Schritt: Warnung „⚠ Nächsten Schritt festlegen“ mit Eingabefeld.
+
+**Abhaken eines Projekt-Schritts** (überall): Gibt es danach einen offenen Schritt ⇒ Meldung „Weiter mit: <Titel>“
+(5 s). Sonst kleiner Dialog **„Was ist der nächste Schritt?“** mit Eingabefeld und den Knöpfen „Hinzufügen“, „Später“
+(Projekt zeigt die Warnung) und „Projekt abschließen“.
 - Termin-Titel im Kalender = Aufgabentitel; Beschreibung enthält den Hinweis „SecondBrain" und die Eintrags-ID.
 - Der Vorschlag im Uhr-Dialog (nächste volle Viertelstunde im Planungsfenster) überspringt die Pause; gewählt
   werden darf jede Zeit, auch in der Pause.
@@ -468,6 +630,10 @@ Von oben nach unten:
 - Antippen einer Ablage → Figur zeigt mit dem Arm auf ihrer Seite auf die Kachel, Kopf und Blick
   folgen (~0,25 s, sanft); nach ~0,35 s öffnet sich die Ablage als eigene Ansicht mit Zurück-Pfeil.
   Bei „reduzierter Bewegung“ ohne Animation. Tastatur: Kacheln sind Knöpfe (Tab, Enter).
+- **Ablage geöffnet (normal), Phase 9:** oben die **Projekte** der Ablage (aktive; Titel, Fortschritt x/y, Warnung
+  „⚠ Nächsten Schritt festlegen“; antippen ⇒ Projektansicht §6.3.3), darunter die Aufgaben mit Status-Kennzeichen
+  (Nächster Schritt, Termin, Warte auf, Irgendwann, ★, ⚡; einheitliche Farben wie auf der Aufgabenseite) – Projekt-
+  Schritte stehen beim Projekt, nicht noch einmal in der Liste.
 - **Ablage geöffnet (normal):** offene Aufgaben, Notizen und Termine dieser Ablage, Suchfeld
   (Titel und Notizen, ohne Groß-/Kleinschreibung). Notizen sind vollständig lesbar (mit Zeilenumbrüchen, lange
   Notizen ggf. aufklappbar, nie unwiederbringlich abgeschnitten). Antippen → Bearbeiten (ItemEditor, dort auch
@@ -479,7 +645,10 @@ Von oben nach unten:
   **„Ausgewählte eingekauft"** (nur wenn etwas abgehakt ist) mit Bestätigung → abgehakte Artikel
   werden gelöscht.
 - **Erledigt:** archivierte Aufgaben, neueste zuerst, mit Erledigt-Datum; **Wiederherstellen** →
-  zurück in `originalCategoryId` (fehlt sie, in Privat), `status: "offen"`.
+  zurück in `originalCategoryId` (fehlt sie, in Privat), `status: "offen"`. Phase 9: Abgeschlossene Projekte stehen
+  oben eigens („Projekte“) mit Abschlussdatum und **Wiederherstellen** (§3.12); ihre mitarchivierten Schritte stehen
+  unter dem Projekt, nicht noch einmal einzeln. Wird ein einzelner Schritt wiederhergestellt, dessen Projekt erledigt
+  ist, wird das Projekt mit wiederhergestellt.
 - **Vergangene Termine (Phase 7):** Einträge `type: "termin"`, `status: "offen"` mit `schedule`, deren Ende
   (`schedule.start + schedule.durationMin`) vorbei ist, verschiebt die App automatisch nach „Erledigt“ – wie ✓ Erledigt
   (`status: "erledigt"`, `originalCategoryId` merken, `categoryId` = Archiv), aber `completedAt` = Ende des Termins.
@@ -528,6 +697,8 @@ Was mit dem Google-Termin (`schedule.calendarEventId`) eines Eintrags passiert:
 | Eintrag löschen (Bearbeiten-Dialog, von jeder Seite aus) | wird gelöscht; vorher Bestätigung „Eintrag und Google-Termin löschen?“ |
 | „– Aus Kalender“ | wird gelöscht, `schedule: null` |
 | ✓ Erledigt / Checkbox | Beginn **in der Zukunft** ⇒ wird gelöscht, `schedule: null`, kurze Meldung „Termin entfernt“; schon begonnen oder vorbei ⇒ bleibt als Historie |
+| Projekt abschließen (Phase 9) | je Schritt wie ✓ Erledigt |
+| „Antwort erhalten“, „Aktivieren“, Statuswechsel (Phase 9) | bleibt unverändert |
 | Wiederherstellen aus Erledigt | bleibt unverändert |
 | In andere Ablage verschieben, Art ändern, Ablage löschen (Einträge wandern) | bleibt unverändert |
 | „Ausgewählte eingekauft“ | wie Eintrag löschen (ohne zusätzliche Bestätigung) |
@@ -616,7 +787,8 @@ Was mit dem Google-Termin (`schedule.calendarEventId`) eines Eintrags passiert:
   (`secrets: inherit` gilt nicht über Kontogrenzen). Logik und Skript kommen von `stable`.
   Die Action:
   0. (Phase 8) fehlt ein Secret aus 3.7 ⇒ `nicht-eingerichtet`, sonst nichts;
-  1. prüft dasselbe wie die App: Inbox-Einträge ohne `sortError` oder Aufgaben nach §8.4 e; sonst `nichts`;
+  1. prüft dasselbe wie die App: Inbox-Einträge ohne `sortError` (Phase 9: ohne die frühere Regel §8.4 e); sonst
+     `nichts`;
   2. prüft die Sperre (3.10); aktiv ⇒ `laeuft`;
   3. schreibt `runs/started.json` (`gestartet`), commit + push auf `main`; scheitert das ⇒ `fehler`, kein Start;
   4. ruft **genau einmal** `POST <ROUTINE_FIRE_URL>` auf (ohne `text`; kein automatisches Wiederholen, der Endpunkt
@@ -633,7 +805,8 @@ Was mit dem Google-Termin (`schedule.calendarEventId`) eines Eintrags passiert:
   lokale Kopie des Daten-Repos, Git mit den Zugangsdaten des Nutzers) bleibt eingerichtet, ist aber pausiert. Sie
   nutzt denselben Prompt und muss weiter funktionieren; Cloud- und lokaler Lauf nie gleichzeitig aktiv.
 - Prompt: `docs/CLAUDE-LAUF.md` im Code-Repo (versioniert, ohne feste Pfade und Namen; Datenordner laut §3.11).
-  Testsätze: `docs/sortier-tests.md`, `docs/sortier-tests-2.md` (neutrale Beispiele, keine persönlichen Daten).
+  Testsätze: `docs/sortier-tests.md`, `docs/sortier-tests-2.md`, `docs/sortier-tests-3.md` (Phase 9; neutrale
+  Beispiele, keine persönlichen Daten).
 - Keine Mail-Prüfung (gestrichen 2026-10-19); die Routine nutzt nur den Kalender-Connector.
 - **Aufgabenteilung:** Claude versteht und ordnet nur ein und bedient den Connector. Alles Feste
   erledigen Skripte im Code-Repo (`npm run lauf:*`): Git, Kontext ausgeben, Entscheidungen prüfen,
@@ -641,8 +814,7 @@ Was mit dem Google-Termin (`schedule.calendarEventId`) eines Eintrags passiert:
   Zwischendateien in `.lauf/`; ins Repo kommt nur, was die Skripte geprüft haben.
 
 ### 8.2 Ablauf eines Laufs
-1. `git pull`. Keine Inbox-Einträge ohne `sortError` **und** keine einzuplanenden wichtigen Aufgaben (8.4 e)
-   ⇒ **sofort beenden** (kein Commit, kein Kalender). Höchstens **29** Inbox-Einträge pro Lauf (die ältesten nach
+1. `git pull`. Keine Inbox-Einträge ohne `sortError` ⇒ **sofort beenden** (kein Commit, kein Kalender). Höchstens **29** Inbox-Einträge pro Lauf (die ältesten nach
    `createdAt`); die übrigen bleiben für den nächsten Lauf im Eingangskorb.
 2. Claude ordnet jeden Eintrag ein (8.3) und schreibt die Entscheidungen nach `.lauf/`.
 3. Claude liest die Termine der nächsten 14 Tage über den Connector nach `.lauf/`.
@@ -671,37 +843,48 @@ Was mit dem Google-Termin (`schedule.calendarEventId`) eines Eintrags passiert:
    oder mehrzeiligen Texten nie den ganzen Text als Titel. Sagt der Text mehr als der Titel, kommt der
    **ursprüngliche Text so vollständig und wörtlich wie möglich** in `notes` (alle Sätze und Zeilenumbrüche); nichts
    geht verloren. Steht schon alles im Titel, `notes: ""`. Einkaufsartikel: `notes: ""`.
-5. **Wichtig:** `important: true` nur bei ausdrücklichen Wörtern („wichtig“, „dringend“,
-   „unbedingt“, „sofort“, „asap“). Im Zweifel nicht wichtig.
-6. **Dauer:** Angabe des Nutzers, sonst Schätzung; auf 15 Min. gerundet, min. 15 Min., max. die
-   Länge des Planungsfensters. Termine mit Uhrzeit ohne Angabe: 60 Min.
+5. **Fokus (Phase 9, früher „Wichtig“):** `important: true` nur bei ausdrücklichen Wörtern („wichtig“, „dringend“,
+   „unbedingt“, „sofort“, „asap“). Im Zweifel nicht. Fokus führt **nicht** zu einem Kalendertermin. Nennt der Text eine
+   Frist („bis Freitag“), zusätzlich `dueDate`.
+6. **Dauer:** Angabe des Nutzers, sonst Schätzung in ganzen Minuten (Phase 9: auch unter 15, z. B. 2 für „kurz Bescheid
+   geben“, „Link schicken“; ≤ 2 ⇒ ⚡), max. die Länge des Planungsfensters. Termine mit Uhrzeit ohne Angabe: 60 Min.
 7. **Zeitangaben** löst Claude relativ zum Lauf-Zeitpunkt auf („morgen“, „Freitag“ = nächster
    Freitag, heute eingeschlossen, solange der Zeitpunkt noch nicht vorbei ist) und gibt sie als
    Ortszeit an; das Skript ergänzt den Offset (Europe/Berlin).
+8. **Status (Phase 9, nur Aufgaben):** „warte auf …“, „hab X gefragt“, „X soll mir … schicken“, „X meldet sich“ ⇒
+   `warten` (`waiting.person` = Person/Stelle aus dem Text, `since` = Datum der Erfassung, `followUpOn` nur, wenn
+   genannt: „nachhaken am …“, „falls bis Freitag nichts kommt“). „irgendwann mal …“, „vielleicht …“, „wäre schön …“,
+   „eines Tages …“ ⇒ `irgendwann`. Sonst `naechster-schritt`.
+9. **Projekt (Phase 9):** Passt ein Eintrag **eindeutig** zu einem aktiven Projekt (Titel/Notiz, Liste aus
+   `lauf:start`), wird er dessen letzter Schritt (`projectId`, gleiche Ablage wie das Projekt). Im Zweifel kein Projekt.
+   **Neues Projekt nur**, wenn der Text es ausdrücklich sagt („Projekt …“, „neues Projekt …“): Projekt mit kurzem Titel,
+   Ablage nach Regel 3, `notes` = Originaltext (immer vollständig) und **ein** erster nächster Schritt als Aufgabe,
+   den Claude vorschlägt (konkret, erledigbar). Serien legt der Lauf nicht an.
+10. **Ausdrücklich einplanen (Phase 9):** nur bei Worten wie „plane … ein“, „trag … (in den Kalender) ein“, „blocke …“,
+   „reserviere Zeit …“ (`plan: true`) oder bei einer festen Uhrzeit (Regel a in 8.4).
 
 ### 8.4 Einplanen (Skript)
-Reihenfolge innerhalb eines Laufs: a → b → c → d, jeweils nach `createdAt`. Bereits in diesem Lauf
+Phase 9: Kalendertermine entstehen **nur** bei fester Uhrzeit oder ausdrücklichem Einplanen (8.3 Regel 10); „wichtig“
+plant nichts mehr ein. Reihenfolge innerhalb eines Laufs: a → b → c, jeweils nach `createdAt`. Bereits in diesem Lauf
 vergebene Zeiten gelten als belegt.
 - **a) Datum + Uhrzeit** (jede Art): Kalendertermin **genau** zu dieser Zeit, auch außerhalb des
   Planungsfensters und auch bei Überschneidung. Liegt der Zeitpunkt in der Vergangenheit ⇒ `sortError`.
-- **b) Datum ohne Uhrzeit** (jede Art): Block mit der Dauer des Nutzers, sonst **90 Min.**, im
-  ersten freien Slot im Planungsfenster **an genau diesem Tag** (heute: ab jetzt). Kein freier
+- **b) Datum ohne Uhrzeit**, nur bei `type: "termin"` oder `plan: true`: Block mit der Dauer des Nutzers, sonst
+  **90 Min.**, im ersten freien Slot im Planungsfenster **an genau diesem Tag** (heute: ab jetzt). Kein freier
   Slot oder Datum vorbei ⇒ Eintrag bleibt mit `sortError` im Eingangskorb.
-- **c) Wichtig, ohne Datum, Dauer 15 Min.:** erster freier Slot ab Beginn des Planungsfensters
-  des nächsten Tages, dessen Fenster noch nicht begonnen hat (**Tagesanfang**).
-- **d) Wichtig, ohne Datum, sonst:** ebenfalls erst ab diesem **Tagesanfang**, erster freier Slot
-  nach den c-Einträgen. Hat das Fenster heute schon begonnen, also nie mehr heute; läuft der Lauf
-  vor Fensterbeginn (z. B. 7 Uhr), ist der Tagesanfang heute 09:00.
-- **e) Vorhandene wichtige Aufgaben ohne Termin** (`items/`: `type: "aufgabe"`, `status: "offen"`,
-  `important: true`, `schedule: null`, z. B. in der App nachträglich als wichtig markiert): wie c/d ab
-  Tagesanfang, Dauer `durationMin`, fehlt sie ⇒ 30 Min. (15 Min. ⇒ wie c zuerst). Werden nach den neuen
-  Einträgen des Laufs vergeben. Kein Slot ⇒ bleibt ohne Termin, Hinweis in `errors`.
+- **c) `plan: true` ohne Datum:** erster freier Slot ab dem **Tagesanfang** = Beginn des Planungsfensters des nächsten
+  Tages, dessen Fenster noch nicht begonnen hat (hat das Fenster heute schon begonnen, also nie mehr heute; läuft der
+  Lauf vor Fensterbeginn, ist der Tagesanfang heute). Einträge mit Dauer ≤ 15 Min. zuerst. Dauer des Nutzers, sonst
+  Schätzung, mindestens 15 Min. Findet sich nichts ⇒ Eintrag ohne `schedule`, Hinweis in `errors`.
+- **Aufgabe mit Datum ohne Uhrzeit und ohne `plan`** („morgen Krankenkasse anrufen“): kein Kalender, `dueDate` = Datum.
+  Notizen mit Datum ohne Uhrzeit und ohne `plan`: kein Kalender (Datum bleibt im Text).
+- **Entfallen (Phase 9):** automatische Einplanung wichtiger Einträge (frühere c/d) und vorhandener wichtiger Aufgaben
+  (frühere e).
 - Sonst: kein Kalendertermin (`schedule: null`).
 - **Frei** = keine Überschneidung mit belegten Terminen des Kalenders `primary`. Nicht belegend:
   ganztägige Termine, als „frei“ markierte (`transparency: transparent`) und abgesagte.
-  Slots beginnen auf Viertelstunden, Suche über 14 Tage, alle Wochentage. Findet c/d nichts ⇒
-  Eintrag ohne `schedule` und Hinweis in `errors`.
-- **Pause (§3.6, Phase 7):** Die Pause zählt bei b–e (und bei ✗ „Nicht erledigt“ in der App) an jedem Tag als
+  Slots beginnen auf Viertelstunden, Suche über 14 Tage, alle Wochentage.
+- **Pause (§3.6, Phase 7):** Die Pause zählt bei b und c (und bei ✗ „Nicht erledigt“ in der App) an jedem Tag als
   belegt; ein automatisch eingeplanter Block läuft **nie über die Pause**. Einzige Ausnahme: Die Dauer ist länger als
   der längere Teil des Planungsfensters vor bzw. nach der Pause – dann darf der Block über die Pause laufen (sonst
   wäre er nie einplanbar). Feste Uhrzeiten (a) und manuelles Einplanen gelten genau wie angegeben, auch in der Pause.
@@ -732,5 +915,6 @@ vergebene Zeiten gelten als belegt.
 | 6 | iPhone (Safari, Home-Bildschirm) |
 | 7 | Fehler, Feinschliff (Teil A), vollwertiger Kalender (Teil B) |
 | 8 | Testphase mit 3–4 weiteren Nutzern: öffentliches Code-Repo, Kanäle main/stable, Updates, Formatversion, Ersteinrichtung, Claude optional, Daten-Repo-Vorlage, Feedback |
+| 9 | Aufgabenseite nach GTD: Status, Fokus, Projekte mit Schritt-Serien, Reiter, Kalender nur noch ausdrücklich |
 
 Die frühere Phase „Mail-Vorschläge“ ist gestrichen (Entscheidung des Nutzers, 2026-10-19).
