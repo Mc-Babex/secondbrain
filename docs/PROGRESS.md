@@ -45,9 +45,9 @@ Freigegeben 2026-11-16 (bei Format 1 bleiben; Aufgabe mit Datum ohne Planungswor
 | 91 Schritt-Serien | ✅ |
 | 92 Reiter-Leiste und Reiter „Aktuell“ | ✅ |
 | 93 Reiter „Warte auf“ und „Irgendwann“ | ✅ |
-| 94 Projekte, Projektansicht, Serien-Dialog | ⬜ |
+| 94 Projekte, Projektansicht, Serien-Dialog | ✅ |
 | 95 Bearbeiten-Dialog und „In Ablage…“ | ✅ |
 | 96 Seite 4: Projekte und Status-Kennzeichen | ✅ |
 | 97 Claude-Lauf: Kalender-Regel, Status, Projekte | ✅ |
 | 98 Testsätze und Trockenlauf | ✅ (Trockenlauf 29/29 · 14/14 · 13/13) |
-| 99 Abnahme und Veröffentlichen | ⬜ |
+| 99 Abnahme und Veröffentlichen | 🟨 (Vorschau-Test durch den Nutzer) |

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ItemEditor } from '../../components/ItemEditor'
 import {
   useCategories,
@@ -9,12 +9,6 @@ import {
   useSuggestions,
 } from '../../data/hooks'
 import type { Item } from '../../data/types'
-import {
-  completeItemWithEvent,
-  restoreItemWithEvent,
-  type RemovedSchedule,
-} from '../../google/itemEvents'
-import { BodyPortal } from '../../components/BodyPortal'
 import { recentItemIds } from '../../lib/lastRun'
 import { usePageVisible } from '../../lib/pageActive'
 import { somedayItems, waitingItems, type TimeLimit } from '../../lib/gtd'
@@ -22,17 +16,21 @@ import { loadTab, loadTimeLimit, saveTab, saveTimeLimit, type TaskTab } from '..
 import { InboxSection } from './InboxSection'
 import { LastRunHints } from './LastRunHints'
 import { CurrentTab } from './CurrentTab'
-import { ProjectsTab } from './OtherTabs'
+import { CompletionNotices } from './CompletionNotices'
+import { ProjectsTab } from './projects/ProjectsTab'
+import { ProjectView } from './projects/ProjectView'
 import { SomedayTab } from './SomedayTab'
 import { WaitingTab } from './WaitingTab'
 import type { TaskSlots } from './slots'
 import { SuggestionsSection } from './SuggestionsSection'
 import { panelId, tabId } from './tabIds'
 import { TaskTabs } from './TaskTabs'
+import { useStepCompletion } from './useStepCompletion'
+import { useTransientNote } from './useTransientNote'
 import styles from './TasksPage.module.css'
 
-const UNDO_MS = 5000
 const CLOCK_MS = 60_000
+const NOTE_MS = 6000
 
 /** Aufgabenseite laut SPEC §6.3 (ohne Kalender-Funktionen; Erweiterungspunkte siehe `slots.ts`). */
 export function TasksPage({
@@ -51,11 +49,10 @@ export function TasksPage({
   const [timeLimit, setTimeLimit] = useState<TimeLimit>(loadTimeLimit)
   const [now, setNow] = useState(() => new Date())
   const [editing, setEditing] = useState<Item | null>(null)
-  const [undo, setUndo] = useState<Item | null>(null)
-  const [undoNote, setUndoNote] = useState<string | null>(null)
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null)
+  const [projectNote, showProjectNote] = useTransientNote(NOTE_MS)
   const [error, setError] = useState<string | null>(null)
-  const removedSchedule = useRef<RemovedSchedule | null>(null)
-  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const completion = useStepCompletion(items, projects)
 
   const visible = usePageVisible()
   useEffect(() => {
@@ -63,38 +60,11 @@ export function TasksPage({
     const timer = setInterval(() => setNow(new Date()), CLOCK_MS)
     return () => clearInterval(timer)
   }, [visible])
-  useEffect(() => () => clearTimeout(undoTimer.current), [])
 
   const run = useCallback((action: () => Promise<unknown>): void => {
     setError(null)
     action().catch(() => setError('Das hat nicht geklappt. Bitte versuche es erneut.'))
   }, [])
-
-  const onComplete = useCallback(
-    (item: Item): void => {
-      run(async () => {
-        const result = await completeItemWithEvent(item)
-        setUndoNote(result.note)
-        removedSchedule.current = result.removed
-        setUndo(item)
-        clearTimeout(undoTimer.current)
-        undoTimer.current = setTimeout(() => setUndo(null), UNDO_MS)
-      })
-    },
-    [run],
-  )
-
-  const onUndo = (): void => {
-    if (!undo) return
-    const { id } = undo
-    const removed = removedSchedule.current
-    clearTimeout(undoTimer.current)
-    setUndo(null)
-    run(async () => {
-      const hint = await restoreItemWithEvent(id, removed)
-      if (hint) setError(hint)
-    })
-  }
 
   const selectTab = (next: TaskTab): void => {
     setTab(next)
@@ -122,10 +92,28 @@ export function TasksPage({
     projects,
     now,
     recentIds,
-    onComplete,
+    onComplete: completion.complete,
     onEdit: setEditing,
     renderOverdueActions,
     renderTaskActions,
+  }
+
+  const closeProject = useCallback(
+    (note?: string | null): void => {
+      setOpenProjectId(null)
+      showProjectNote(note ?? null)
+    },
+    [showProjectNote],
+  )
+
+  if (openProjectId && projects.some((p) => p.id === openProjectId && p.status === 'aktiv')) {
+    return (
+      <ProjectView
+        projectId={openProjectId}
+        backLabel="Zurück zu den Aufgaben"
+        onBack={closeProject}
+      />
+    )
   }
 
   return (
@@ -136,11 +124,12 @@ export function TasksPage({
           {error}
         </p>
       )}
-      {notice && (
+      {(notice ?? projectNote) && (
         <p className={styles.notice} role="status">
-          {notice}
+          {notice ?? projectNote}
         </p>
       )}
+      <CompletionNotices completion={completion} />
       {!loading && (
         <>
           <SuggestionsSection suggestions={suggestions} categories={categories} run={run} />
@@ -157,21 +146,18 @@ export function TasksPage({
             {tab === 'aktuell' && (
               <CurrentTab {...listProps} timeLimit={timeLimit} onTimeLimit={selectTimeLimit} />
             )}
-            {tab === 'projekte' && <ProjectsTab {...listProps} />}
+            {tab === 'projekte' && (
+              <ProjectsTab
+                items={items}
+                categories={categories}
+                projects={projects}
+                onOpen={setOpenProjectId}
+              />
+            )}
             {tab === 'warten' && <WaitingTab {...listProps} />}
             {tab === 'irgendwann' && <SomedayTab {...listProps} />}
           </div>
         </>
-      )}
-      {undo && (
-        <BodyPortal>
-          <div className={styles.toast} role="status">
-            <span>{undoNote ? `Erledigt. ${undoNote}` : 'Erledigt'}</span>
-            <button className={styles.toastButton} onClick={onUndo}>
-              Rückgängig
-            </button>
-          </div>
-        </BodyPortal>
       )}
       {editing && (
         <ItemEditor item={editing} categories={categories} onClose={() => setEditing(null)} />

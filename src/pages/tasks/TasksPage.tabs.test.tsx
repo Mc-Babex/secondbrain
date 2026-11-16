@@ -45,10 +45,10 @@ describe('Aufgabenseite: Aufbau und Reiter', () => {
     await task('Überfällige', { schedule: { start: '2026-10-20T10:00:00+02:00', durationMin: 30 } })
     render(<TasksPage />)
     const suggestions = await screen.findByText('Vorschläge von Claude')
-    const hints = screen.getByText('Hinweise vom letzten Lauf')
-    const inbox = screen.getByRole('button', { name: 'Jetzt sortieren' })
-    const tabs = screen.getByRole('tablist')
-    const today = screen.getByText('Heute / Überfällig')
+    const hints = await screen.findByText('Hinweise vom letzten Lauf')
+    const inbox = await screen.findByRole('button', { name: 'Jetzt sortieren' })
+    const tabs = await screen.findByRole('tablist')
+    const today = await screen.findByText('Heute / Überfällig')
     const before = (a: Node, b: Node) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
     expect(before(suggestions, hints)).toBe(true)
@@ -145,6 +145,21 @@ describe('Aufgabenseite: Aufbau und Reiter', () => {
     expect(screen.getByText('Antwort Amt')).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: /Irgendwann/ }))
     expect(screen.getByText('Segeln lernen')).toBeInTheDocument()
+  })
+
+  it('öffnet die Projektansicht aus dem Reiter; der Pfeil führt zurück zum Reiter „Projekte“', async () => {
+    const user = userEvent.setup()
+    await createProject({ title: 'Umzug', categoryId: 'privat' })
+    render(<TasksPage />)
+    await user.click(await screen.findByRole('tab', { name: /Projekte/ }))
+    await user.click(await screen.findByRole('button', { name: /^Umzug/ }))
+    expect(await screen.findByRole('heading', { name: 'Umzug' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Zurück zu den Aufgaben' }))
+    expect(await screen.findByRole('tab', { name: /Projekte/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.getByRole('button', { name: /^Umzug/ })).toBeInTheDocument()
   })
 })
 

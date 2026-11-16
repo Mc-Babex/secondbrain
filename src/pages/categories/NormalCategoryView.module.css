@@ -78,14 +78,6 @@
   color: var(--color-text-muted);
 }
 
-.error {
-  color: var(--color-danger);
-}
-
-.notice {
-  color: var(--color-text-muted);
-}
-
 .heading {
   margin: 0 0 0.5rem;
   font-size: 1rem;

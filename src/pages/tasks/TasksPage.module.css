@@ -70,8 +70,7 @@
 
 .button,
 .textButton,
-.iconButton,
-.toastButton {
+.iconButton {
   min-height: 2.75rem;
   padding: 0.5rem 0.875rem;
   border: 1px solid var(--color-border);
@@ -128,25 +127,6 @@
 
 .error {
   color: var(--color-danger);
-}
-
-.toast {
-  position: fixed;
-  bottom: 4rem;
-  left: 50%;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
-  background: var(--color-surface);
-  transform: translateX(-50%);
-}
-
-.toastButton {
-  color: var(--color-accent);
 }
 
 .itemError {

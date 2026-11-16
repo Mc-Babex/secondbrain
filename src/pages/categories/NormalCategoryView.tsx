@@ -5,9 +5,10 @@ import { ProjectCard } from '../../components/ProjectCard'
 import { StatusBadges } from '../../components/StatusBadges'
 import { useProjects } from '../../data/hooks'
 import type { Category, Item, ItemType, Project } from '../../data/types'
-import { completeItemWithEvent } from '../../google/itemEvents'
 import { activeProjectsOf, itemsOfCategory } from '../../lib/categoryView'
 import { formatDateTime } from '../../lib/format'
+import { CompletionNotices } from '../tasks/CompletionNotices'
+import { useStepCompletion } from '../tasks/useStepCompletion'
 import styles from './NormalCategoryView.module.css'
 
 interface NormalCategoryViewProps {
@@ -38,8 +39,7 @@ export function NormalCategoryView({
   const allProjects = projects ?? stored
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<Item | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const completion = useStepCompletion(items, allProjects)
 
   const visible = useMemo(
     () => itemsOfCategory(items, category.id, query, allProjects),
@@ -55,15 +55,6 @@ export function NormalCategoryView({
     )
   }, [allProjects, category.id, query])
 
-  const onComplete = (item: Item): void => {
-    setError(null)
-    setNotice(null)
-    completeItemWithEvent(item).then(
-      (result) => setNotice(result.note),
-      () => setError('Das hat nicht geklappt. Bitte versuche es erneut.'),
-    )
-  }
-
   const searching = query.trim() !== ''
   const showEmpty = visible.length === 0 && categoryProjects.length === 0
 
@@ -77,16 +68,7 @@ export function NormalCategoryView({
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p className={styles.notice} role="status">
-          {notice}
-        </p>
-      )}
+      <CompletionNotices completion={completion} />
       {categoryProjects.length > 0 && (
         <section aria-label="Projekte">
           <h3 className={styles.heading}>Projekte</h3>
@@ -120,7 +102,7 @@ export function NormalCategoryView({
                   className={styles.check}
                   checked={false}
                   aria-label={`${item.title} erledigen`}
-                  onChange={() => onComplete(item)}
+                  onChange={() => completion.complete(item)}
                 />
               )}
               <div className={styles.main}>

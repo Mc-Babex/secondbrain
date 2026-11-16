@@ -1,5 +1,6 @@
 import {
   completeItem,
+  completeProject,
   restoreItem,
   deleteItem,
   removeCheckedShoppingItems,
@@ -94,6 +95,54 @@ export async function completeItemWithEvent(
     note: EVENT_REMOVED_MESSAGE,
     removed: { start: schedule.start, durationMin: schedule.durationMin },
   }
+}
+
+/**
+ * Schließt ein Projekt ab (SPEC §6.6: je Schritt wie ✓ Erledigt): Für jeden offenen Schritt mit künftigem
+ * Termin wird zuerst der Google-Termin gelöscht und `schedule` geleert; begonnene oder vergangene Termine
+ * bleiben. Fehlt die Verbindung oder schlägt Google fehl, wird trotzdem abgeschlossen (die Termine bleiben)
+ * und ein Hinweis zurückgegeben. Wartet nie auf eine Anmeldung.
+ */
+export async function completeProjectWithEvents(
+  projectId: string,
+  items: readonly Item[],
+  now: Date = new Date(),
+): Promise<string | null> {
+  const upcoming = items.filter(
+    (i) =>
+      i.projectId === projectId &&
+      i.type === 'aufgabe' &&
+      i.status === 'offen' &&
+      eventIdOf(i) !== null &&
+      Date.parse(i.schedule?.start ?? '') > now.getTime(),
+  )
+  let reason: string | null = null
+  let removed = 0
+  if (upcoming.length > 0 && !wasConnected()) {
+    reason = NOT_CONNECTED_REASON
+  } else {
+    for (const step of upcoming) {
+      const eventId = eventIdOf(step)
+      if (eventId === null) continue
+      try {
+        if (await isSeriesEvent(eventId, { interactive: false })) {
+          reason = SERIES_REASON
+          continue
+        }
+        await deleteEvent(eventId, { interactive: false })
+        await updateItem(step.id, { schedule: null })
+        removed += 1
+      } catch (error) {
+        reason = googleErrorMessage(error)
+        break
+      }
+    }
+  }
+  await completeProject(projectId)
+  const parts: string[] = []
+  if (removed > 0) parts.push(removed === 1 ? EVENT_REMOVED_MESSAGE : 'Termine entfernt')
+  if (reason !== null) parts.push(`Termin bleibt im Kalender – ${reason}`)
+  return parts.length === 0 ? null : parts.join('. ')
 }
 
 /**

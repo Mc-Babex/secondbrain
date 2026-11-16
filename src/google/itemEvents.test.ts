@@ -1,9 +1,18 @@
 import { vi } from 'vitest'
 import { resetDb } from '../data/localStore'
-import { createItem, listItems, restoreItem } from '../data/repository'
+import {
+  addProjectStep,
+  createItem,
+  createProject,
+  listItems,
+  listProjects,
+  restoreItem,
+  updateItem,
+} from '../data/repository'
 import type { Item } from '../data/types'
 import {
   completeItemWithEvent,
+  completeProjectWithEvents,
   deleteItemWithEvent,
   moveItemEvent,
   removeCheckedWithEvents,
@@ -283,5 +292,55 @@ describe('Eintrag an einer Serie (calendarEventId ist eine Serien-ID)', () => {
     const item = await withEvent(FUTURE)
     expect(await moveItemEvent(item, '2026-10-19T09:00:00+02:00', 60)).toBeNull()
     expect(calendar.updateEventTime).toHaveBeenCalledWith('ev1', '2026-10-19T09:00:00+02:00', 60)
+  })
+})
+
+describe('completeProjectWithEvents', () => {
+  async function projectWithSteps() {
+    const project = await createProject({ title: 'Projekt', categoryId: 'privat' })
+    const future = await addProjectStep(project.id, { title: 'Künftig' })
+    const past = await addProjectStep(project.id, { title: 'Vergangen' })
+    await updateItem(future.id, {
+      schedule: { start: FUTURE, durationMin: 30, calendarEventId: 'ev-future' },
+    })
+    await updateItem(past.id, {
+      schedule: { start: PAST, durationMin: 30, calendarEventId: 'ev-past' },
+    })
+    return project
+  }
+
+  it('löscht künftige Termine offener Schritte, vergangene bleiben', async () => {
+    const project = await projectWithSteps()
+    const note = await completeProjectWithEvents(project.id, await listItems(), NOW)
+    expect(note).toBe('Termin entfernt')
+    expect(calendar.deleteEvent).toHaveBeenCalledTimes(1)
+    expect(calendar.deleteEvent).toHaveBeenCalledWith('ev-future', { interactive: false })
+    const items = await listItems()
+    expect(items.find((i) => i.title === 'Künftig')).toEqual(
+      expect.objectContaining({ status: 'erledigt', schedule: null }),
+    )
+    expect(items.find((i) => i.title === 'Vergangen')).toEqual(
+      expect.objectContaining({
+        status: 'erledigt',
+        schedule: expect.objectContaining({ calendarEventId: 'ev-past' }),
+      }),
+    )
+    expect((await listProjects())[0].status).toBe('erledigt')
+  })
+
+  it('schließt ohne Verbindung trotzdem ab und weist darauf hin', async () => {
+    auth.wasConnected.mockReturnValue(false)
+    const project = await projectWithSteps()
+    const note = await completeProjectWithEvents(project.id, await listItems(), NOW)
+    expect(note).toBe('Termin bleibt im Kalender – Google nicht verbunden.')
+    expect(calendar.deleteEvent).not.toHaveBeenCalled()
+    expect((await listProjects())[0].status).toBe('erledigt')
+  })
+
+  it('ruft Google ohne künftige Termine nicht auf', async () => {
+    const project = await createProject({ title: 'Leer', categoryId: 'privat' })
+    await addProjectStep(project.id, { title: 'Schritt' })
+    expect(await completeProjectWithEvents(project.id, await listItems(), NOW)).toBeNull()
+    expect(calendar.deleteEvent).not.toHaveBeenCalled()
   })
 })

@@ -1,0 +1,110 @@
+.page {
+  box-sizing: border-box;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--space);
+  padding-bottom: 5rem;
+  overflow-x: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: var(--space);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.back {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.back:focus-visible,
+.button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.head {
+  margin-bottom: 1.5rem;
+}
+
+.category {
+  margin: 0 0 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.bar {
+  flex: 1;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  background: var(--status-next);
+}
+
+.count {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.button {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.error {
+  color: var(--color-danger);
+}
+
+.confirmText {
+  margin: 0 0 var(--space);
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+}

@@ -32,6 +32,13 @@ Reihenfolge, Serien und Abschließen; nach dem Abhaken eines Schritts der Hinwei
 - **Abhaken-Hinweis** laut §6.3.3 überall, wo ein Projekt-Schritt erledigt wird (Aufgabenseite alle Reiter,
   Projektansicht, Ablage). Der Dialog „Was ist der nächste Schritt?“: Eingabefeld mit Fokus, „Hinzufügen“, „Später“,
   „Projekt abschließen“. Rückgängig des Erledigens bleibt möglich.
+- **Projekt abschließen und Google-Termine** (SPEC §6.6 „je Schritt wie ✓ Erledigt“): `completeProject` in der
+  Datenschicht fasst keine Termine an. Die Oberfläche löscht daher vorher für jeden offenen Schritt mit künftigem
+  Termin den Google-Termin über den vorhandenen Weg aus `src/google/itemEvents.ts` (wie `completeItemWithEvent`;
+  begonnene/vergangene Termine bleiben), mit denselben Hinweisen bei fehlender Verbindung/offline. Eine kleine
+  Hilfsfunktion in `src/google/itemEvents.ts` ist dafür erlaubt (+ Test).
+- **Nachtrag aus dem Review von 93:** `src/pages/tasks/TasksPage.tabs.test.tsx` Test zur Reihenfolge robust machen
+  (alle Abfragen nach dem asynchronen Laden über `findBy*`/`waitFor`).
 - Gestaltung: Fortschrittsbalken ruhig in `--status-next`, Warnung in `--color-danger` mit ⚠ und Text. Tippflächen
   ≥ 44 px, 360 px ohne waagerechtes Scrollen.
 
@@ -40,7 +47,8 @@ Reihenfolge, Serien und Abschließen; nach dem Abhaken eines Schritts der Hinwei
 2. Schritte hinzufügen, ↑/↓ ändern die Reihenfolge, nächster Schritt in Karte und Reiter „Aktuell“ folgt (Tests).
 3. Projekt ohne offenen Schritt zeigt die Warnung in Reiter, Ansicht und Ablage (Test).
 4. Abhaken mit weiterem offenen Schritt ⇒ „Weiter mit: <Titel>“; ohne ⇒ Dialog mit den drei Wegen (Tests).
-5. Projekt abschließen ⇒ verschwindet aus dem Reiter, steht in Erledigt (Test).
+5. Projekt abschließen ⇒ verschwindet aus dem Reiter, steht in Erledigt; künftige Google-Termine offener Schritte
+   werden gelöscht, vergangene bleiben (Tests mit gemocktem Google).
 6. Serie „Übungsblatt {Nr}“, wöchentlich Mo, fällig Fr, Ende 12.02.2027 anlegen ⇒ gespeichert laut §3.12, Vorschau
    zeigt die nächsten 3 Termine; Pausieren/Fortsetzen/Beenden ändern `state` (Tests).
 7. Projektansicht von Seite 4 aus öffnen und zurück (Test).

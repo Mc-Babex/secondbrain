@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useCategories, useItems } from '../../data/hooks'
+import { useCategories, useItems, useProjects } from '../../data/hooks'
 import type { Category } from '../../data/types'
 import { countByCategory } from '../../lib/categoryView'
 import { ringLayout } from '../../lib/ring'
+import { ProjectView } from '../tasks/projects/ProjectView'
+import { useTransientNote } from '../tasks/useTransientNote'
 import { CategoryFormDialog } from './CategoryFormDialog'
 import { CategoryRing } from './CategoryRing'
 import { CategoryView } from './CategoryView'
@@ -11,6 +13,7 @@ import styles from './CategoriesPage.module.css'
 
 /** 250 ms Armbewegung plus ~100 ms Halten, bevor sich die Ablage öffnet. */
 const POINT_MS = 350
+const NOTE_MS = 6000
 
 function prefersReducedMotion(): boolean {
   return (
@@ -23,10 +26,13 @@ function prefersReducedMotion(): boolean {
 export function CategoriesPage() {
   const categories = useCategories()
   const items = useItems()
+  const projects = useProjects()
   const counts = useMemo(() => countByCategory(items, categories), [items, categories])
   const [page, setPage] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null)
+  const [projectNote, showProjectNote] = useTransientNote(NOTE_MS)
   const [dialog, setDialog] = useState<'create' | 'rename' | 'delete' | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -50,8 +56,25 @@ export function CategoriesPage() {
     setSelectedId(null)
   }
 
+  const closeProject = useCallback(
+    (note?: string | null): void => {
+      setOpenProjectId(null)
+      showProjectNote(note ?? null)
+    },
+    [showProjectNote],
+  )
+
   const open = categories.find((c) => c.id === openId)
   if (open) {
+    if (openProjectId && projects.some((p) => p.id === openProjectId && p.status === 'aktiv')) {
+      return (
+        <ProjectView
+          projectId={openProjectId}
+          backLabel={`Zurück zu ${open.name}`}
+          onBack={closeProject}
+        />
+      )
+    }
     return (
       <section className={styles.page}>
         <header className={styles.header}>
@@ -83,7 +106,17 @@ export function CategoriesPage() {
             </button>
           )}
         </header>
-        <CategoryView category={open} categories={categories} items={items} />
+        {projectNote && (
+          <p className={styles.notice} role="status">
+            {projectNote}
+          </p>
+        )}
+        <CategoryView
+          category={open}
+          categories={categories}
+          items={items}
+          onOpenProject={setOpenProjectId}
+        />
         {dialog === 'rename' && (
           <CategoryFormDialog category={open} onClose={() => setDialog(null)} />
         )}
