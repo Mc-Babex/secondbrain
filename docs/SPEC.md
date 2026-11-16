@@ -571,6 +571,10 @@ waagerechtes Scrollen ab 360 px Breite (Beschriftung ggf. gekürzt, z. B. „Irg
    Filter blendet Aufgaben mit größerer **oder fehlender** Dauer aus. Gilt nur für diesen Abschnitt.
 4. **Eingeplant (n)** – eingeklappt; offene Aufgaben mit Termin nach heute, nach Beginn sortiert.
 
+Jede Aufgabe erscheint im Reiter „Aktuell“ nur einmal, Vorrang: Heute/Überfällig vor Fokus vor Eingeplant (Fokus-
+Aufgaben behalten dort ihre Fokus-Kante). Der Hinweis „Mehr als 5 …“ zählt alle offenen Fokus-Aufgaben außer Irgendwann
+und steht oben im Reiter, auch wenn der Abschnitt Fokus leer ist.
+
 Leerer Reiter: kurze Einladung (z. B. „Keine nächsten Schritte. Neues über die Erfassung anlegen.“).
 
 **Reiter „Projekte“:** aktive Projekte gruppiert nach Ablage; je Projekt Titel, Fortschritt x/y (Balken), nächster

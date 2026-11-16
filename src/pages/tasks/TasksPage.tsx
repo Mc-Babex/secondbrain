@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ItemEditor } from '../../components/ItemEditor'
-import { useCategories, useInbox, useItems, useLastRun, useSuggestions } from '../../data/hooks'
+import {
+  useCategories,
+  useInbox,
+  useItems,
+  useLastRun,
+  useProjects,
+  useSuggestions,
+} from '../../data/hooks'
 import type { Item } from '../../data/types'
 import {
   completeItemWithEvent,
@@ -10,13 +17,16 @@ import {
 import { BodyPortal } from '../../components/BodyPortal'
 import { recentItemIds } from '../../lib/lastRun'
 import { usePageVisible } from '../../lib/pageActive'
-import { buildTaskView } from '../../lib/taskGroups'
+import { somedayItems, waitingItems, type TimeLimit } from '../../lib/gtd'
+import { loadTab, loadTimeLimit, saveTab, saveTimeLimit, type TaskTab } from '../../lib/tabMemory'
 import { InboxSection } from './InboxSection'
 import { LastRunHints } from './LastRunHints'
-import { OverdueSection } from './OverdueSection'
+import { CurrentTab } from './CurrentTab'
+import { ProjectsTab, SomedayTab, WaitingTab } from './OtherTabs'
 import type { TaskSlots } from './slots'
 import { SuggestionsSection } from './SuggestionsSection'
-import { TaskGroups } from './TaskGroups'
+import { panelId, tabId } from './tabIds'
+import { TaskTabs } from './TaskTabs'
 import styles from './TasksPage.module.css'
 
 const UNDO_MS = 5000
@@ -33,7 +43,10 @@ export function TasksPage({
   const inbox = useInbox()
   const suggestions = useSuggestions()
   const lastRun = useLastRun()
+  const projects = useProjects()
 
+  const [tab, setTab] = useState<TaskTab>(loadTab)
+  const [timeLimit, setTimeLimit] = useState<TimeLimit>(loadTimeLimit)
   const [now, setNow] = useState(() => new Date())
   const [editing, setEditing] = useState<Item | null>(null)
   const [undo, setUndo] = useState<Item | null>(null)
@@ -81,11 +94,37 @@ export function TasksPage({
     })
   }
 
+  const selectTab = (next: TaskTab): void => {
+    setTab(next)
+    saveTab(next)
+  }
+  const selectTimeLimit = (limit: TimeLimit): void => {
+    setTimeLimit(limit)
+    saveTimeLimit(limit)
+  }
+
   // Solange die Ablagen noch laden, nichts anzeigen (sonst würden Aufgaben kurz als „Ohne Ablage" erscheinen).
   const loading = categories.length === 0
-  const view = useMemo(() => buildTaskView(items, categories, now), [items, categories, now])
   const recentIds = useMemo(() => recentItemIds(lastRun, now), [lastRun, now])
-  const isEmpty = !loading && view.overdue.length === 0 && view.groups.length === 0
+  const counts = useMemo(
+    () => ({
+      projekte: projects.filter((p) => p.status === 'aktiv').length,
+      warten: waitingItems(items).length,
+      irgendwann: somedayItems(items).length,
+    }),
+    [items, projects],
+  )
+  const listProps = {
+    items,
+    categories,
+    projects,
+    now,
+    recentIds,
+    onComplete,
+    onEdit: setEditing,
+    renderOverdueActions,
+    renderTaskActions,
+  }
 
   return (
     <div className={styles.page}>
@@ -103,26 +142,24 @@ export function TasksPage({
       {!loading && (
         <>
           <SuggestionsSection suggestions={suggestions} categories={categories} run={run} />
-          <OverdueSection
-            items={view.overdue}
-            onComplete={onComplete}
-            renderOverdueActions={renderOverdueActions}
-          />
           <LastRunHints lastRun={lastRun} now={now} />
           <InboxSection entries={inbox} categories={categories} run={run} />
-          <TaskGroups
-            groups={view.groups}
-            recentIds={recentIds}
-            onComplete={onComplete}
-            onEdit={setEditing}
-            renderTaskActions={renderTaskActions}
-          />
+          <TaskTabs active={tab} onSelect={selectTab} counts={counts} />
+          <div
+            key={tab}
+            id={panelId(tab)}
+            role="tabpanel"
+            aria-labelledby={tabId(tab)}
+            className={styles.panel}
+          >
+            {tab === 'aktuell' && (
+              <CurrentTab {...listProps} timeLimit={timeLimit} onTimeLimit={selectTimeLimit} />
+            )}
+            {tab === 'projekte' && <ProjectsTab {...listProps} />}
+            {tab === 'warten' && <WaitingTab {...listProps} />}
+            {tab === 'irgendwann' && <SomedayTab {...listProps} />}
+          </div>
         </>
-      )}
-      {isEmpty && (
-        <p className={styles.empty}>
-          Keine offenen Aufgaben. Neue Gedanken hältst du auf der Erfassungsseite fest.
-        </p>
       )}
       {undo && (
         <BodyPortal>

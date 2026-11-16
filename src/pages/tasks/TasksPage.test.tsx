@@ -28,7 +28,7 @@ async function addSuggestion(): Promise<void> {
 describe('TasksPage', () => {
   it('zeigt leeren Zustand und keine optionalen Bereiche', async () => {
     render(<TasksPage />)
-    expect(await screen.findByText(/Keine offenen Aufgaben/)).toBeInTheDocument()
+    expect(await screen.findByText(/Keine nächsten Schritte/)).toBeInTheDocument()
     expect(screen.queryByText('Vorschläge von Claude')).not.toBeInTheDocument()
     expect(screen.queryByText('Überfällig')).not.toBeInTheDocument()
     expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
@@ -61,9 +61,11 @@ describe('TasksPage', () => {
       schedule: { start: '2026-10-16T14:00:00+02:00', durationMin: 30 },
     })
     render(<TasksPage />)
-    const section = (await screen.findByText('Überfällig')).closest('section') as HTMLElement
+    const section = (await screen.findByText('Heute / Überfällig')).closest(
+      'section',
+    ) as HTMLElement
     expect(within(section).getByText('Steuer')).toBeInTheDocument()
-    expect(within(section).getByText('Fr 16.10., 14:00')).toBeInTheDocument()
+    expect(within(section).getByText('Termin Fr 16.10., 14:00')).toBeInTheDocument()
     await userEvent.click(within(section).getByRole('button', { name: 'Erledigt' }))
     await waitFor(async () => expect((await listItems())[0].status).toBe('erledigt'))
   })
@@ -151,8 +153,9 @@ describe('TasksPage', () => {
     })
     await createItem({ type: 'notiz', title: 'Nur Notiz', categoryId: 'privat' })
     render(<TasksPage />)
-    expect(await screen.findByText('wichtig')).toBeInTheDocument()
-    expect(screen.getByText('1 Std. 30 Min.')).toBeInTheDocument()
+    const row = (await screen.findByRole('button', { name: 'Lernen' })).closest('li') as HTMLElement
+    expect(within(row).getByText('Fokus')).toBeInTheDocument()
+    expect(within(row).getByText('1 Std. 30 Min.')).toBeInTheDocument()
     expect(screen.queryByText('Nur Notiz')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Lernen' }))
     expect(screen.getByRole('dialog', { name: 'Eintrag bearbeiten' })).toBeInTheDocument()

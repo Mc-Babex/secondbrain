@@ -19,6 +19,8 @@ Die Reiter „Warte auf“ und „Irgendwann“ bekommen ihre vollständige Dars
   „Aktiviert – steht jetzt unter Aktuell“. Titel antippen ⇒ ItemEditor.
 - Projekt-Schritte mit diesem Status erscheinen ebenfalls (mit Projektname).
 - Leere Zustände: „Du wartest gerade auf nichts.“ bzw. „Nichts für irgendwann – Ideen landen hier über die Erfassung.“
+- **Nachtrag aus dem Review von 92** (SPEC §6.3.1): Der Fokus-Hinweis „Mehr als 5 …“ steht oben im Reiter „Aktuell“
+  und erscheint auch, wenn der Abschnitt Fokus leer ist (alle Fokus-Aufgaben stehen z. B. unter Heute). Test dazu.
 - Gestaltung ruhig, Status-Farben aus `--status-*`, Tippflächen ≥ 44 px, 360 px ohne waagerechtes Scrollen.
 
 ## Abnahmekriterien
