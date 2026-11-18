@@ -40,6 +40,11 @@ export function formatDay(day: string): string {
   return `${parts.weekday.replace('.', '')} ${parts.day}.${parts.month}.`
 }
 
+/** „Nächstes: Übungsblatt 6 ab Mo 30.11.“ (SPEC §3.12). */
+export function nextSeriesText(next: { date: string; title: string }): string {
+  return `Nächstes: ${next.title} ab ${formatDay(next.date)}`
+}
+
 /** „12.02.2027“ für `YYYY-MM-DD`. */
 export function formatFullDay(day: string): string {
   const date = parse(day)

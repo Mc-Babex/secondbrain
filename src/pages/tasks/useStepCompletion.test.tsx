@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { resetDb } from '../../data/localStore'
 import {
   addProjectStep,
+  addSeries,
   createItem,
   createProject,
   listItems,
@@ -138,6 +139,40 @@ describe('Abhaken eines Projekt-Schritts', () => {
     await user.click(await screen.findByRole('checkbox', { name: 'Blatt 1 erledigt' }))
     expect(await screen.findByText('Weiter mit: Blatt 2')).toBeInTheDocument()
     await user.click(screen.getByRole('checkbox', { name: 'Blatt 2 erledigt' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Was ist der nächste Schritt?' }),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('Abhaken des letzten Schritts mit Serie', () => {
+  const fields = {
+    titlePattern: 'Übungsblatt {Nr}',
+    every: 1,
+    weekday: 1,
+    startDate: '2026-11-23',
+    endDate: null,
+    count: 10,
+    dueWeekday: null,
+    durationMin: null,
+  }
+
+  it('zeigt „Nächstes: … ab …“ statt des Dialogs', async () => {
+    const user = userEvent.setup()
+    const project = await projectWith('Blatt 0')
+    await addSeries(project.id, fields)
+    render(<TasksPage />)
+    await user.click(await screen.findByRole('checkbox', { name: 'Blatt 0 erledigt' }))
+    expect(await screen.findByText('Nächstes: Übungsblatt 1 ab Mo 23.11.')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('ohne weiteren Stichtag (beendete Serie) bleibt der Dialog', async () => {
+    const user = userEvent.setup()
+    const project = await projectWith('Blatt 0')
+    await addSeries(project.id, { ...fields, count: null, endDate: '2026-11-20' })
+    render(<TasksPage />)
+    await user.click(await screen.findByRole('checkbox', { name: 'Blatt 0 erledigt' }))
     expect(
       await screen.findByRole('dialog', { name: 'Was ist der nächste Schritt?' }),
     ).toBeInTheDocument()

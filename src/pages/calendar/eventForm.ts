@@ -1,3 +1,4 @@
+import type { Category, Project } from '../../data/types'
 import { shiftDay } from '../../google/days'
 import type { EventFormValues } from '../../google/eventActions'
 import { splitDescription } from '../../google/events'
@@ -147,4 +148,48 @@ export function valuesFromForm(form: EventForm): EventFormValues {
   const [year, month, day] = form.date.split('-').map(Number)
   const start = zonedToDate(year, month, day, 0, timeToMinutes(form.time))
   return { ...base, timing: { allDay: false, start: toIso(start), durationMin: form.duration } }
+}
+
+export const TASK_LOCK_ALL_DAY = 'Nicht bei ganztägigen Terminen möglich'
+export const TASK_LOCK_RECURRING = 'Nicht bei Terminen mit Wiederholung möglich'
+
+/** Grund, warum „Auch als Aufgabe ablegen“ gesperrt ist, oder `null`. */
+export function taskLockReason(form: EventForm): string | null {
+  if (form.allDay) return TASK_LOCK_ALL_DAY
+  return form.recurrence.freq === 'none' ? null : TASK_LOCK_RECURRING
+}
+
+/** Eingaben zu „Auch als Aufgabe ablegen“ (`categoryId` leer ⇒ erste Ablage). */
+export interface TaskOption {
+  enabled: boolean
+  categoryId: string
+  projectId: string
+}
+
+export const NO_TASK_OPTION: TaskOption = { enabled: false, categoryId: '', projectId: '' }
+
+/** Ablagen, in die ein Termin als Aufgabe passt (ohne Einkauf und Archiv), nach `order`. */
+export function taskCategories(categories: readonly Category[]): Category[] {
+  return categories.filter((c) => c.kind === 'normal').sort((a, b) => a.order - b.order)
+}
+
+/** Gültige Ablage und aktive Projekte dazu; `projectId` ist `''` ohne (gültiges) Projekt. */
+export interface TaskTarget {
+  categoryId: string
+  projectId: string
+  projects: Project[]
+}
+
+/** Löst Ablage (Vorgabe: erste) und Projekt (nur aktiv, passende Ablage) auf; `null` ohne Ablage. */
+export function resolveTaskTarget(
+  option: TaskOption,
+  categories: readonly Category[],
+  projects: readonly Project[],
+): TaskTarget | null {
+  const choices = taskCategories(categories)
+  const category = choices.find((c) => c.id === option.categoryId) ?? choices[0]
+  if (category === undefined) return null
+  const active = projects.filter((p) => p.status === 'aktiv' && p.categoryId === category.id)
+  const projectId = active.some((p) => p.id === option.projectId) ? option.projectId : ''
+  return { categoryId: category.id, projectId, projects: active }
 }

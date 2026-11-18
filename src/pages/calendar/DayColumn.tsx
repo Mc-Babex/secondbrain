@@ -4,13 +4,10 @@ import type { CalendarEvent } from '../../google/types'
 import { DAY_MINUTES, layoutDay } from '../../lib/calendarView'
 import { EventTile } from './EventTile'
 import { minutesLabel } from './dayLabels'
-import { dayOfDate, quarterStartMin } from './newEvent'
-import { useFreeHold } from './useFreeHold'
+import { dayOfDate } from './newEvent'
+import { HOLD_BLOCK_MIN, useFreeHold, type HoldPlace } from './useFreeHold'
 import type { DragEnv } from './useTileDrag'
 import styles from './CalendarPage.module.css'
-
-/** Höhe der Markierung = Standarddauer eines neuen Termins (60 Min.). */
-const DEFAULT_MARK_MIN = 60
 
 const pct = (minutes: number): string => `${(minutes / DAY_MINUTES) * 100}%`
 
@@ -24,8 +21,12 @@ interface DayColumnProps {
   nowMin: number | null
   today: boolean
   onOpenEvent: (event: CalendarEvent) => void
-  /** Langes Drücken auf freie Zeit; `fraction` = Lage im Tag (0–1). */
-  onHoldFree: (day: string, fraction: number) => void
+  /** Loslassen nach Halten und Ziehen auf freier Zeit: Tag und Beginn (Minuten) des Blocks. */
+  onHoldFree: (day: string, startMin: number) => void
+  /** Beginn des Halte-Blocks (Minuten) in dieser Spalte; `null` = keiner. */
+  holdStartMin: number | null
+  /** Meldet die Lage des Halte-Blocks (`null` = beendet). */
+  onHoldMark: (place: HoldPlace | null) => void
   /** Zeitpunkt (`Date.now()`) des letzten Scroll-Ereignisses der Zeitleiste. */
   lastScrollAt: MutableRefObject<number>
   /** Umgebung zum Ziehen der Termine (Verschieben, Dauer). */
@@ -48,12 +49,12 @@ export function DayColumn({
   today,
   onOpenEvent,
   onHoldFree,
+  holdStartMin,
+  onHoldMark,
   lastScrollAt,
   drag,
 }: DayColumnProps) {
-  const { columnRef, mark, handlers } = useFreeHold(lastScrollAt, (fraction) =>
-    onHoldFree(day, fraction),
-  )
+  const { columnRef, handlers } = useFreeHold(lastScrollAt, drag.scroller, onHoldMark, onHoldFree)
 
   return (
     <div
@@ -94,11 +95,11 @@ export function DayColumn({
           }}
         />
       ))}
-      {mark !== null && (
+      {holdStartMin !== null && (
         <div
           className={styles.holdMark}
           data-testid="hold-mark"
-          style={{ top: pct(quarterStartMin(mark)), height: pct(DEFAULT_MARK_MIN) }}
+          style={{ top: pct(holdStartMin), height: pct(HOLD_BLOCK_MIN) }}
         />
       )}
       {nowMin !== null && (

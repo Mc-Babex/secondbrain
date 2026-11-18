@@ -1,5 +1,6 @@
 import type { Item, Project } from '../data/types'
-import { nextStepOf, needsNextStep, projectProgress } from '../lib/gtd'
+import { nextSeriesText } from '../pages/tasks/projects/projectDates'
+import { nextSeriesOccurrence, nextStepOf, needsNextStep, projectProgress } from '../lib/gtd'
 import styles from './ProjectCard.module.css'
 
 interface ProjectCardProps {
@@ -13,6 +14,7 @@ interface ProjectCardProps {
 /** Projekt mit Titel, Fortschritt x/y und nächstem Schritt bzw. Warnung (SPEC §3.12, §6.4). */
 export function ProjectCard({ project, items, onOpen }: ProjectCardProps) {
   const { done, total } = projectProgress(project, items)
+  const series = nextSeriesOccurrence(project)
   const next = nextStepOf(project, items)
   const warn = needsNextStep(project, items)
   const percent = total === 0 ? 0 : Math.round((done / total) * 100)
@@ -38,8 +40,10 @@ export function ProjectCard({ project, items, onOpen }: ProjectCardProps) {
       </span>
       {warn ? (
         <span className={styles.warning}>⚠ Nächsten Schritt festlegen</span>
+      ) : next ? (
+        <span className={styles.next}>Nächster Schritt: {next.title}</span>
       ) : (
-        next && <span className={styles.next}>Nächster Schritt: {next.title}</span>
+        series && <span className={styles.next}>{nextSeriesText(series)}</span>
       )}
     </>
   )

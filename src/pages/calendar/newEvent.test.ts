@@ -1,4 +1,4 @@
-import { dayOfDate, plusDraft, holdDraft } from './newEvent'
+import { dayOfDate, plusDraft, holdDraftAt } from './newEvent'
 
 describe('plusDraft', () => {
   const now = new Date('2026-10-17T10:07:00+02:00')
@@ -26,14 +26,14 @@ describe('plusDraft', () => {
   })
 })
 
-describe('holdDraft', () => {
-  it('rundet auf die Viertelstunde ab', () => {
-    expect(holdDraft('2026-10-14', 622 / 1440)).toMatchObject({ date: '2026-10-14', time: '10:15' })
-  })
-
-  it('bleibt im Tag', () => {
-    expect(holdDraft('2026-10-14', 1).time).toBe('23:45')
-    expect(holdDraft('2026-10-14', -0.2).time).toBe('00:00')
+describe('holdDraftAt', () => {
+  it('übernimmt Tag und Beginn direkt', () => {
+    expect(holdDraftAt('2026-10-14', 14 * 60 + 45)).toMatchObject({
+      date: '2026-10-14',
+      time: '14:45',
+      endTime: '15:45',
+      duration: 60,
+    })
   })
 })
 

@@ -10,6 +10,8 @@ const KNOWN_MESSAGES: readonly string[] = [
   'Ungültiger Wochentag.',
   'Ungültiger Fälligkeits-Wochentag.',
   'Ende entweder per Datum oder per Anzahl festlegen.',
+  'Nur künftige Stichtage können ausfallen.',
+  'Dieser Stichtag liegt nicht mehr in der Zukunft.',
 ]
 
 /** Bekannte Nutzermeldungen durchreichen, alles andere (technische Fehler) allgemein ausdrücken. */

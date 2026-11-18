@@ -3,8 +3,8 @@ import { StatusBadges } from '../../../components/StatusBadges'
 import { addProjectStep, moveProjectStep } from '../../../data/repository'
 import type { Item, Project } from '../../../data/types'
 import { formatDuration } from '../../../lib/format'
-import { needsNextStep } from '../../../lib/gtd'
-import { DURATION_CHOICES } from './projectDates'
+import { needsNextStep, nextSeriesOccurrence } from '../../../lib/gtd'
+import { DURATION_CHOICES, nextSeriesText } from './projectDates'
 import styles from './ProjectSteps.module.css'
 import { userMessage } from './userMessage'
 
@@ -34,6 +34,7 @@ export function ProjectSteps({
   const [duration, setDuration] = useState('')
   const [error, setError] = useState<string | null>(null)
   const warn = needsNextStep(project, items)
+  const series = open.length === 0 ? nextSeriesOccurrence(project) : null
 
   const run = (action: Promise<unknown>): Promise<boolean> => {
     setError(null)
@@ -70,6 +71,7 @@ export function ProjectSteps({
           Nächsten Schritt festlegen
         </p>
       )}
+      {series && <p className={styles.next}>{nextSeriesText(series)}</p>}
       {open.length > 0 && (
         <ul className={styles.list}>
           {open.map((step, index) => (

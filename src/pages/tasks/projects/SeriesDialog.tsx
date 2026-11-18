@@ -1,8 +1,10 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { Dialog } from '../../../components/Dialog'
 import form from '../../../components/Form.module.css'
-import { addSeries, updateSeries } from '../../../data/repository'
+import { useItems } from '../../../data/hooks'
+import { addSeries } from '../../../data/repository'
 import type { Project, StepSeries } from '../../../data/types'
+import { updateSeriesWithEvents } from '../../../google/seriesEvents'
 import { formatDuration } from '../../../lib/format'
 import { berlinDate } from '../../../lib/gtd'
 import { previewNext } from '../../../lib/series'
@@ -32,6 +34,8 @@ export function SeriesDialog({ project, series, onClose }: SeriesDialogProps) {
   )
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const items = useItems()
 
   const set = <K extends keyof SeriesForm>(key: K, value: SeriesForm[K]): void =>
     setValues((current) => ({ ...current, [key]: value }))
@@ -42,11 +46,33 @@ export function SeriesDialog({ project, series, onClose }: SeriesDialogProps) {
       ...seriesFieldsOf(values),
       id: series?.id ?? 'vorschau',
       state: 'aktiv',
+      skippedDates: series?.skippedDates ?? [],
       lastNumber: series?.lastNumber ?? 0,
       lastDate: series?.lastDate ?? null,
     }
     return previewNext(base, 3)
   }, [values, series])
+
+  // Start, Wochentag, Rhythmus oder Fälligkeit geändert und offene Blätter vorhanden ⇒ Hinweis (SPEC §6.3.3).
+  const recalculates = useMemo(() => {
+    if (!series || validateSeriesForm(values) !== null) return false
+    const next = seriesFieldsOf(values)
+    const changed =
+      next.startDate !== series.startDate ||
+      next.weekday !== series.weekday ||
+      next.every !== series.every ||
+      next.dueWeekday !== series.dueWeekday
+    return (
+      changed &&
+      items.some(
+        (i) =>
+          i.projectId === project.id &&
+          i.seriesId === series.id &&
+          i.seriesNumber !== undefined &&
+          i.status === 'offen',
+      )
+    )
+  }, [values, series, items, project.id])
 
   const onSubmit = (event: FormEvent): void => {
     event.preventDefault()
@@ -60,12 +86,21 @@ export function SeriesDialog({ project, series, onClose }: SeriesDialogProps) {
     setError(null)
     const fields = seriesFieldsOf(values)
     const save = series
-      ? updateSeries(project.id, series.id, fields)
-      : addSeries(project.id, fields)
-    save.then(onClose, (e: unknown) => {
-      setBusy(false)
-      setError(userMessage(e))
-    })
+      ? updateSeriesWithEvents(project.id, series.id, fields).then(({ note }) => note)
+      : addSeries(project.id, fields).then(() => null)
+    save.then(
+      (note) => {
+        if (note === null) onClose()
+        else {
+          setBusy(false)
+          setNotice(`Serie gespeichert. ${note}`)
+        }
+      },
+      (e: unknown) => {
+        setBusy(false)
+        setError(userMessage(e))
+      },
+    )
   }
 
   return (
@@ -212,6 +247,8 @@ export function SeriesDialog({ project, series, onClose }: SeriesDialogProps) {
             </ul>
           )}
         </section>
+        {recalculates && <p role="note">Offene Blätter werden neu berechnet.</p>}
+        {notice !== null && <p role="status">{notice}</p>}
         {error && (
           <p className={form.error} role="alert">
             {error}
@@ -219,9 +256,13 @@ export function SeriesDialog({ project, series, onClose }: SeriesDialogProps) {
         )}
         <div className={form.actions}>
           <button type="button" className={form.button} onClick={onClose}>
-            Abbrechen
+            {notice === null ? 'Abbrechen' : 'Schließen'}
           </button>
-          <button type="submit" className={`${form.button} ${form.primary}`} disabled={busy}>
+          <button
+            type="submit"
+            className={`${form.button} ${form.primary}`}
+            disabled={busy || notice !== null}
+          >
             Speichern
           </button>
         </div>

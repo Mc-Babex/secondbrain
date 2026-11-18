@@ -20,18 +20,21 @@ import { zonedParts } from '../../lib/time'
 import { CalendarHeader } from './CalendarHeader'
 import { ConnectionNotice } from './ConnectionNotice'
 import { DayColumn } from './DayColumn'
+import type { HoldPlace } from './useFreeHold'
 import { EventDialog } from './EventDialog'
 import { EventTile } from './EventTile'
 import { GuestPrompt, MoveToastView } from './MoveNotices'
 import { useEventMoves } from './useEventMoves'
 import type { EventForm } from './eventForm'
-import { dayOfDate, plusDraft, holdDraft } from './newEvent'
+import { dayOfDate, plusDraft, holdDraftAt } from './newEvent'
 import { dayFullLabel, dayShortLabel, dayToAnchor } from './dayLabels'
 import styles from './CalendarPage.module.css'
 
 const MODE_KEY = 'secondbrain.calendarMode'
 const HOUR_PX = 48
 const NOW_TICK_MS = 60_000
+const NOTICE_MS = 5000
+const TASK_CREATED_NOTICE = 'Termin angelegt – auch als Aufgabe abgelegt'
 
 function loadMode(): ViewMode {
   try {
@@ -67,6 +70,10 @@ export function CalendarPage() {
   const connected = useGoogleConnected()
   const scroller = useRef<HTMLDivElement>(null)
   const lastScrollAt = useRef(0)
+  const [holdMark, setHoldMark] = useState<HoldPlace | null>(null)
+  const [createdNotice, setCreatedNotice] = useState(false)
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(noticeTimer.current), [])
 
   const range = useMemo(() => viewRange(anchor, mode), [anchor, mode])
   const { events: loaded, status, error, reload } = useCalendarEvents(connected ? range : null)
@@ -131,9 +138,15 @@ export function CalendarPage() {
     }
     setDraft(plusDraft(dayOfDate(anchor), new Date(), planning.startMin))
   }
-  const holdFree = (day: string, fraction: number): void => {
-    if (connected) setDraft(holdDraft(day, fraction))
+  const holdFree = (day: string, startMin: number): void => {
+    if (connected) setDraft(holdDraftAt(day, startMin))
     else setConnectHint(true)
+  }
+
+  const showCreatedNotice = (): void => {
+    clearTimeout(noticeTimer.current)
+    setCreatedNotice(true)
+    noticeTimer.current = setTimeout(() => setCreatedNotice(false), NOTICE_MS)
   }
 
   const columns = `3rem repeat(${range.days.length}, minmax(0, 1fr))`
@@ -254,6 +267,8 @@ export function CalendarPage() {
                 today={nowMin !== null}
                 onOpenEvent={setOpenEvent}
                 onHoldFree={holdFree}
+                holdStartMin={holdMark?.day === day ? holdMark.startMin : null}
+                onHoldMark={setHoldMark}
                 lastScrollAt={lastScrollAt}
                 drag={dragEnv}
               />
@@ -280,12 +295,18 @@ export function CalendarPage() {
           draft={draft}
           item={null}
           onClose={() => setDraft(null)}
-          onSaved={() => reload()}
+          onSaved={(taskCreated) => {
+            reload()
+            if (taskCreated) showCreatedNotice()
+          }}
           onOpenItem={() => undefined}
         />
       )}
       {moves.pending && <GuestPrompt onAnswer={moves.answer} />}
       {moves.toast && <MoveToastView toast={moves.toast} />}
+      {createdNotice && (
+        <MoveToastView toast={{ text: TASK_CREATED_NOTICE, error: false, undo: null }} />
+      )}
       {editing && (
         <ItemEditor item={editing} categories={categories} onClose={() => setEditing(null)} />
       )}

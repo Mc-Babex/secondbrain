@@ -225,11 +225,11 @@ export async function moveEvent(
 }
 
 /** Legt einen reinen Google-Termin an (ohne SecondBrain-Eintrag, ohne Gäste-Benachrichtigung). */
-export async function createEvent(values: EventFormValues): Promise<void> {
+export async function createEvent(values: EventFormValues): Promise<CalendarEvent> {
   const recurrence = values.recurrence
     ? rruleLinesFor(values.recurrence, timingStart(values.timing), undefined)
     : []
-  await createCalendarEvent(
+  return createCalendarEvent(
     {
       title: values.title,
       timing: values.timing,

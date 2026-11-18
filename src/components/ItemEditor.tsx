@@ -17,6 +17,7 @@ import { timeToMinutes, zonedToDate } from '../lib/planning'
 import { toIso, zonedParts } from '../lib/time'
 import { Dialog } from './Dialog'
 import { GtdFields } from './GtdFields'
+import { SkipSeriesButton } from './SkipSeriesButton'
 import { gtdFields, gtdFormFromItem, projectAfterCategoryChange, type GtdForm } from './gtdForm'
 import form from './Form.module.css'
 import styles from './ItemEditor.module.css'
@@ -241,6 +242,7 @@ export function ItemEditor({ item, categories, onClose }: ItemEditorProps) {
             hideDuration={schedule !== null}
           />
         )}
+        {type === 'aufgabe' && <SkipSeriesButton item={item} />}
         {schedule && seriesCheck !== 'plain' ? (
           <fieldset className={styles.slot}>
             <legend>Termin</legend>

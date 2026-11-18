@@ -11,9 +11,9 @@ describe('tabMemory', () => {
 
   it('merkt Reiter und Zeitfilter', () => {
     saveTab('warten')
-    saveTimeLimit(30)
+    saveTimeLimit(15)
     expect(loadTab()).toBe('warten')
-    expect(loadTimeLimit()).toBe(30)
+    expect(loadTimeLimit()).toBe(15)
     saveTimeLimit(null)
     expect(loadTimeLimit()).toBeNull()
   })
@@ -22,6 +22,13 @@ describe('tabMemory', () => {
     window.localStorage.setItem('secondbrain.tasks.tab', 'quatsch')
     window.localStorage.setItem('secondbrain.tasks.timeLimit', '99')
     expect(loadTab()).toBe('aktuell')
+    expect(loadTimeLimit()).toBeNull()
+  })
+
+  it('behandelt früher gemerkte Stufen 30 und 60 als „alle“', () => {
+    window.localStorage.setItem('secondbrain.tasks.timeLimit', '30')
+    expect(loadTimeLimit()).toBeNull()
+    window.localStorage.setItem('secondbrain.tasks.timeLimit', '60')
     expect(loadTimeLimit()).toBeNull()
   })
 

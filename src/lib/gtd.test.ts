@@ -1,4 +1,4 @@
-import type { Item, Project } from '../data/types'
+import type { Item, Project, StepSeries } from '../data/types'
 import {
   berlinDate,
   displayStatus,
@@ -9,6 +9,7 @@ import {
   isDueOverdue,
   isQuick,
   needsNextStep,
+  nextSeriesOccurrence,
   nextStepOf,
   nextStepsSection,
   plannedLater,
@@ -191,8 +192,6 @@ describe('sortNextSteps und filterByTime', () => {
     const d = task({ durationMin: null })
     const all = [a, b, c, d]
     expect(ids(filterByTime(all, 15))).toEqual(ids([a]))
-    expect(ids(filterByTime(all, 30))).toEqual(ids([a, b]))
-    expect(ids(filterByTime(all, 60))).toEqual(ids([a, b, c]))
     expect(ids(filterByTime(all, null))).toEqual(ids(all))
   })
 })
@@ -266,5 +265,100 @@ describe('Abschnitte', () => {
     const old = task({ gtd: 'irgendwann', createdAt: '2026-10-01T10:00:00+02:00' })
     const recent = task({ gtd: 'irgendwann', createdAt: '2026-11-10T10:00:00+01:00' })
     expect(ids(somedayItems([old, task(), recent]))).toEqual(ids([recent, old]))
+  })
+})
+
+describe('Projekte mit Serie (SPEC §3.12)', () => {
+  const series = (over: Partial<StepSeries> = {}): StepSeries => ({
+    id: 's1',
+    titlePattern: 'Übungsblatt {Nr}',
+    every: 1,
+    weekday: 1,
+    startDate: '2026-10-26',
+    endDate: null,
+    count: 10,
+    dueWeekday: null,
+    durationMin: null,
+    state: 'aktiv',
+    skippedDates: [],
+    lastNumber: 5,
+    lastDate: '2026-11-23',
+    ...over,
+  })
+  const proj = (s: StepSeries): Project => ({
+    id: 'p1',
+    title: 'Analysis',
+    notes: '',
+    categoryId: 'privat',
+    status: 'aktiv',
+    series: [s],
+    createdAt: '2026-10-26T00:00:00+01:00',
+    updatedAt: '2026-10-26T00:00:00+01:00',
+    completedAt: null,
+  })
+  const done = (n: number): Item => ({
+    id: `i${n}`,
+    type: 'aufgabe',
+    title: `Übungsblatt ${n}`,
+    notes: '',
+    categoryId: 'privat',
+    status: 'erledigt',
+    important: false,
+    durationMin: null,
+    schedule: null,
+    originalCategoryId: null,
+    createdAt: '2026-10-26T00:00:00+01:00',
+    updatedAt: '2026-10-26T00:00:00+01:00',
+    completedAt: null,
+    projectId: 'p1',
+    projectOrder: n,
+  })
+  const five = [1, 2, 3, 4, 5].map(done)
+
+  it('count: Fortschritt 5/10, keine Warnung, nächster Termin', () => {
+    const p = proj(series())
+    expect(projectProgress(p, five)).toEqual({ done: 5, total: 10 })
+    expect(needsNextStep(p, five)).toBe(false)
+    expect(nextSeriesOccurrence(p)).toEqual({ date: '2026-11-30', title: 'Übungsblatt 6' })
+  })
+
+  it('endDate: y zählt Stichtage bis zum Ende ohne Ausfälle', () => {
+    const p = proj(series({ count: null, endDate: '2026-12-21', skippedDates: ['2026-12-14'] }))
+    // Stichtage nach 23.11.: 30.11., 07.12., 21.12. (14.12. fällt aus)
+    expect(projectProgress(p, five)).toEqual({ done: 5, total: 8 })
+  })
+
+  it('Serie ohne Ende zählt nur angelegte Schritte', () => {
+    const p = proj(series({ count: null }))
+    expect(projectProgress(p, five)).toEqual({ done: 5, total: 5 })
+    expect(needsNextStep(p, five)).toBe(false)
+  })
+
+  it('beendete Serie oder letzter Stichtag angelegt ⇒ Warnung', () => {
+    expect(needsNextStep(proj(series({ state: 'beendet' })), five)).toBe(true)
+    const last = proj(series({ lastNumber: 10, lastDate: '2026-12-28' }))
+    expect(nextSeriesOccurrence(last)).toBeNull()
+    expect(needsNextStep(last, five)).toBe(true)
+  })
+
+  it('pausierte Serie ⇒ Warnung, Fortschritt nur angelegte', () => {
+    const p = proj(series({ state: 'pausiert' }))
+    expect(needsNextStep(p, five)).toBe(true)
+    expect(projectProgress(p, five)).toEqual({ done: 5, total: 5 })
+  })
+
+  it('mehrere Serien: frühester Termin', () => {
+    const p = proj(series())
+    p.series.push(
+      series({
+        id: 's2',
+        titlePattern: 'Quiz {Nr}',
+        lastNumber: 0,
+        lastDate: null,
+        startDate: '2026-11-24',
+        weekday: 2,
+      }),
+    )
+    expect(nextSeriesOccurrence(p)).toEqual({ date: '2026-11-24', title: 'Quiz 1' })
   })
 })

@@ -2,9 +2,7 @@ import type { TimeLimit } from '../../lib/gtd'
 import styles from './TasksPage.module.css'
 
 const OPTIONS: readonly { limit: TimeLimit; label: string }[] = [
-  { limit: 15, label: '≤ 15' },
-  { limit: 30, label: '≤ 30' },
-  { limit: 60, label: '≤ 60 Min.' },
+  { limit: 15, label: '≤ 15 Min.' },
   { limit: null, label: 'alle' },
 ]
 
@@ -13,7 +11,7 @@ interface TimeFilterProps {
   onChange: (limit: TimeLimit) => void
 }
 
-/** Zeitfilter der Nächsten Schritte: ≤ 15 · ≤ 30 · ≤ 60 Min. · alle. */
+/** Zeitfilter der Nächsten Schritte: ≤ 15 Min. · alle. */
 export function TimeFilter({ value, onChange }: TimeFilterProps) {
   return (
     <div className={styles.segments} role="group" aria-label="Zeitfilter">

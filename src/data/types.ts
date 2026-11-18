@@ -115,6 +115,8 @@ export interface StepSeries {
   dueWeekday: number | null
   durationMin: number | null
   state: SeriesState
+  /** Ausgefallene Stichtage (sortiert, ohne Doppelte); fehlt ⇒ `[]`. */
+  skippedDates: string[]
   lastNumber: number
   lastDate: string | null
 }
@@ -449,6 +451,7 @@ export function isStepSeries(v: unknown): v is StepSeries {
     absentOr(v.dueWeekday, isNumOrNull) &&
     absentOr(v.durationMin, isNumOrNull) &&
     absentOr(v.state, (x) => oneOf(SERIES_STATES, x)) &&
+    absentOr(v.skippedDates, Array.isArray) &&
     absentOr(v.lastNumber, isNum) &&
     absentOr(v.lastDate, isDateOrNull)
   )
@@ -463,6 +466,7 @@ function normalizeSeries(raw: StepSeries): StepSeries {
     dueWeekday: raw.dueWeekday ?? null,
     durationMin: raw.durationMin ?? null,
     state: raw.state ?? 'aktiv',
+    skippedDates: [...new Set((raw.skippedDates ?? []).filter(isDateString))].sort(),
     lastNumber: raw.lastNumber ?? 0,
     lastDate: raw.lastDate ?? null,
   }

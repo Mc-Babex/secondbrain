@@ -6,6 +6,7 @@ import { validSeries } from '../../../data/types'
 import type { Project, SeriesState, StepSeries } from '../../../data/types'
 import { formatFullDay, formatDay, weekdayShort } from './projectDates'
 import { SeriesDialog } from './SeriesDialog'
+import { SeriesSkips } from './SeriesSkips'
 import styles from './SeriesList.module.css'
 import { userMessage } from './userMessage'
 
@@ -99,6 +100,7 @@ export function SeriesList({ project }: { project: Project }) {
                   </button>
                 </div>
               )}
+              <SeriesSkips projectId={project.id} series={series} run={run} />
             </li>
           ))}
         </ul>

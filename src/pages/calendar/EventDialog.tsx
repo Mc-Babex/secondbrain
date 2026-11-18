@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Dialog } from '../../components/Dialog'
 import form from '../../components/Form.module.css'
+import { useCategories, useProjects } from '../../data/hooks'
+import { createScheduledTask } from '../../data/repository'
 import type { Item } from '../../data/types'
 import { getSeries } from '../../google/calendar'
 import {
@@ -25,20 +27,25 @@ import {
   durationBetween,
   endTimeFor,
   formFromEvent,
+  NO_TASK_OPTION,
+  resolveTaskTarget,
+  taskLockReason,
+  type TaskOption,
   validateForm,
   valuesFromForm,
   type EventForm,
 } from './eventForm'
 import { RecurrenceFields } from './RecurrenceFields'
 import { SeriesChoice } from './SeriesChoice'
+import { TaskOptionFields } from './TaskOptionFields'
 import styles from './EventDialog.module.css'
 
 interface DialogBase {
   /** Eintrag, zu dem der Termin (oder seine Serie) gehört. */
   item: Item | null
   onClose: () => void
-  /** Nach erfolgreichem Speichern/Löschen (Kalender neu laden). */
-  onSaved: () => void
+  /** Nach erfolgreichem Speichern/Löschen (Kalender neu laden); `taskCreated`: Aufgabe mit angelegt. */
+  onSaved: (taskCreated?: boolean) => void
   onOpenItem: (item: Item) => void
 }
 
@@ -65,7 +72,17 @@ function durationOptions(current: number): number[] {
   return steps.sort((a, b) => a - b)
 }
 
+const NO_CATEGORY = 'Bitte eine Ablage wählen.'
+
+/** Der Google-Termin steht, die lokale Aufgabe konnte nicht angelegt werden. */
+class TaskSaveError extends Error {
+  constructor() {
+    super('Termin angelegt, Aufgabe konnte nicht gespeichert werden – erneut speichern.')
+  }
+}
+
 function failureMessage(error: unknown): string {
+  if (error instanceof TaskSaveError) return error.message
   return error instanceof GoogleError ? googleErrorMessage(error) : GENERIC_ERROR
 }
 
@@ -148,9 +165,13 @@ function EditDialog({
   const [seriesState, setSeriesState] = useState<SeriesState | null>(
     isOccurrence ? { status: 'loading' } : null,
   )
+  const [taskOption, setTaskOption] = useState<TaskOption>(NO_TASK_OPTION)
+  const categories = useCategories()
+  const projects = useProjects()
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const locked = useRef(false)
+  const createdEvent = useRef<CalendarEvent | null>(null)
   const linked = event !== null && (isLinkedDirectly(event, item) || isLinkedToSeries(event, item))
   const linkedForDelete = event !== null && affectsItem(event, item, scope)
   const guests = event?.hasGuests === true
@@ -199,14 +220,14 @@ function EditDialog({
     change({ duration, endTime: endTimeFor(values.time, duration) })
 
   // Sperre per Ref, damit ein Doppelklick sicher nur einen Aufruf auslöst.
-  const run = async (action: () => Promise<void>): Promise<void> => {
+  const run = async (action: () => Promise<boolean>): Promise<void> => {
     if (locked.current) return
     locked.current = true
     setBusy(true)
     setProblem(null)
     try {
-      await action()
-      onSaved()
+      const taskCreated = await action()
+      onSaved(taskCreated)
       onClose()
     } catch (error) {
       setProblem(failureMessage(error))
@@ -216,17 +237,57 @@ function EditDialog({
     }
   }
 
-  const save = (sendUpdates: SendUpdates): Promise<void> =>
-    run(() =>
-      event
-        ? saveEvent(event, valuesFromForm(values), {
-            sendUpdates,
-            item,
-            scope: effectiveScope,
-            series: seriesState?.status === 'ready' ? seriesState.series : null,
-          })
-        : createEvent(valuesFromForm(values)),
-    )
+  const taskLock = taskLockReason(values)
+  const wantsTask = taskOption.enabled && taskLock === null
+  const taskTarget = resolveTaskTarget(taskOption, categories, projects)
+
+  /**
+   * Legt den Google-Termin an und danach (bei „Auch als Aufgabe ablegen“) die Aufgabe (SPEC §6.7).
+   * Ein bereits angelegter Termin wird bei erneutem Speichern wiederverwendet. Gibt zurück, ob eine
+   * Aufgabe entstand.
+   */
+  const createWithTask = async (): Promise<boolean> => {
+    const eventValues = valuesFromForm(values)
+    const { timing } = eventValues
+    if (!wantsTask || taskTarget === null || timing.allDay) {
+      await createEvent(eventValues)
+      return false
+    }
+    createdEvent.current ??= await createEvent(eventValues)
+    try {
+      await createScheduledTask({
+        title: eventValues.title,
+        notes: eventValues.note,
+        categoryId: taskTarget.categoryId,
+        projectId: taskTarget.projectId === '' ? null : taskTarget.projectId,
+        schedule: {
+          start: timing.start,
+          durationMin: timing.durationMin,
+          calendarEventId: createdEvent.current.id,
+        },
+      })
+    } catch {
+      throw new TaskSaveError()
+    }
+    return true
+  }
+
+  const save = (sendUpdates: SendUpdates): Promise<void> => {
+    if (!event && wantsTask && taskTarget === null) {
+      setProblem(NO_CATEGORY)
+      return Promise.resolve()
+    }
+    return run(async () => {
+      if (!event) return createWithTask()
+      await saveEvent(event, valuesFromForm(values), {
+        sendUpdates,
+        item,
+        scope: effectiveScope,
+        series: seriesState?.status === 'ready' ? seriesState.series : null,
+      })
+      return false
+    })
+  }
 
   const onSubmit = (submitEvent: FormEvent): void => {
     submitEvent.preventDefault()
@@ -239,13 +300,14 @@ function EditDialog({
 
   const remove = (): Promise<void> =>
     run(async () => {
-      if (!event) return
+      if (!event) return false
       await deleteEventAndLink(event, {
         sendUpdates: guests ? notify : 'none',
         item,
         deleteLinkedItem: linkedForDelete && deleteLinked,
         scope: effectiveScope,
       })
+      return false
     })
 
   const back = (): void => {
@@ -412,6 +474,15 @@ function EditDialog({
             onChange={(e) => change({ note: e.target.value })}
           />
         </label>
+        {event === null && (
+          <TaskOptionFields
+            value={taskOption}
+            categories={categories}
+            projects={projects}
+            lockReason={taskLock}
+            onChange={setTaskOption}
+          />
+        )}
         {problem && (
           <p className={form.error} role="alert">
             {problem}

@@ -175,11 +175,35 @@ describe('Projekt', () => {
         dueWeekday: null,
         durationMin: null,
         state: 'aktiv',
+        skippedDates: [],
         lastNumber: 0,
         lastDate: null,
       },
       { id: 'kaputt' },
     ])
     expect(validSeries(n).map((x) => x.id)).toEqual(['s1'])
+  })
+
+  it('ungültiger Eintrag in skippedDates macht die Serie nicht ungültig und wird verworfen', () => {
+    const raw = {
+      id: 'p',
+      title: 'P',
+      categoryId: 'privat',
+      status: 'aktiv',
+      createdAt: 'x',
+      updatedAt: 'x',
+      series: [
+        {
+          id: 's1',
+          titlePattern: 'B {Nr}',
+          every: 1,
+          weekday: 1,
+          startDate: '2026-10-19',
+          skippedDates: ['2026-11-02', 'quatsch', 5],
+        },
+      ],
+    }
+    if (!isProject(raw)) throw new Error('ungültig')
+    expect(validSeries(normalizeProject(raw))[0].skippedDates).toEqual(['2026-11-02'])
   })
 })

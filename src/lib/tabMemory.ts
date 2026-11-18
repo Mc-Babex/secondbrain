@@ -37,7 +37,8 @@ export function saveTab(tab: TaskTab): void {
 /** Gemerkter Zeitfilter; Standard „alle“ (`null`). */
 export function loadTimeLimit(): TimeLimit {
   const stored = read(LIMIT_KEY)
-  return stored === '15' ? 15 : stored === '30' ? 30 : stored === '60' ? 60 : null
+  // Früher gemerkte Stufen (30/60) und Unbekanntes gelten als „alle“.
+  return stored === '15' ? 15 : null
 }
 
 export function saveTimeLimit(limit: TimeLimit): void {

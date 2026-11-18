@@ -79,7 +79,8 @@ function scrollElementBy(element: HTMLElement, step: number): void {
   element.scrollTop += step
 }
 
-function measureColumns(scroller: HTMLElement | null, own: HTMLElement): DragColumn[] {
+/** Waagerechte Bereiche aller Tagesspalten der Zeitleiste (ohne Zeitleiste nur `own`). */
+export function measureColumns(scroller: HTMLElement | null, own: HTMLElement): DragColumn[] {
   const elements = scroller ? [...scroller.querySelectorAll<HTMLElement>('[data-day]')] : [own]
   return elements.map((element) => {
     const rect = element.getBoundingClientRect()

@@ -56,6 +56,34 @@ describe('ProjectCard', () => {
     expect(screen.getByText('⚠ Nächsten Schritt festlegen')).toBeInTheDocument()
   })
 
+  it('mit aktiver Serie: Fortschritt mit geplanten Blättern, „Nächstes“ statt Warnung', () => {
+    const withSeries: Project = {
+      ...project,
+      series: [
+        {
+          id: 's1',
+          titlePattern: 'Übungsblatt {Nr}',
+          every: 1,
+          weekday: 1,
+          startDate: '2026-10-26',
+          endDate: null,
+          count: 10,
+          dueWeekday: null,
+          durationMin: null,
+          state: 'aktiv',
+          skippedDates: [],
+          lastNumber: 5,
+          lastDate: '2026-11-23',
+        },
+      ],
+    }
+    const items = [1, 2, 3, 4, 5].map((n) => step(`b${n}`, n, 'erledigt'))
+    render(<ProjectCard project={withSeries} items={items} />)
+    expect(screen.getByText('5/10')).toBeInTheDocument()
+    expect(screen.getByText('Nächstes: Übungsblatt 6 ab Mo 30.11.')).toBeInTheDocument()
+    expect(screen.queryByText(/Nächsten Schritt festlegen/)).not.toBeInTheDocument()
+  })
+
   it('ist ohne onOpen kein Knopf', () => {
     render(<ProjectCard project={project} items={[]} />)
     expect(screen.queryByRole('button')).not.toBeInTheDocument()

@@ -31,7 +31,7 @@ export function quarterStartMin(fraction: number): number {
   return Math.min(Math.max(minutes, 0), LAST_QUARTER)
 }
 
-/** Vorgabe für langes Drücken auf freie Zeit: Viertelstunde an der Stelle `fraction` (0–1) des Tages. */
-export function holdDraft(day: string, fraction: number): EventForm {
-  return blankForm(day, minutesLabel(quarterStartMin(fraction)))
+/** Vorgabe für langes Drücken/Ziehen auf freie Zeit: Beginn `startMin` (Minuten ab 0 Uhr) am Tag `day`. */
+export function holdDraftAt(day: string, startMin: number): EventForm {
+  return blankForm(day, minutesLabel(startMin))
 }

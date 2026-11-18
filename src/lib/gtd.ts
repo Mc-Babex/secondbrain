@@ -1,11 +1,12 @@
-import type { GtdStatus, Item, Project } from '../data/types'
+import { validSeries, type GtdStatus, type Item, type Project } from '../data/types'
 import { isGtdStatus } from './gtdMigration'
+import { nextOccurrence, remainingOccurrences } from './series'
 import { zonedParts } from './time'
 
 /** Angezeigter Status einer offenen Aufgabe (SPEC §3.3). */
 export type DisplayStatus = 'termin' | GtdStatus
 
-export type TimeLimit = 15 | 30 | 60 | null
+export type TimeLimit = 15 | null
 
 /** Mehr als so viele Aufgaben im Fokus lösen den Hinweis aus (SPEC §6.3.1). */
 export const FOCUS_LIMIT = 5
@@ -78,17 +79,48 @@ export function nextStepOf(project: Pick<Project, 'id'>, items: readonly Item[])
   return projectSteps(project.id, items).find((i) => i.status === 'offen') ?? null
 }
 
+/**
+ * Nächster Serientermin eines aktiven Projekts: frühester weiterer Stichtag der aktiven Serien
+ * (pausierte und beendete zählen nicht), Titel mit `{Nr}` = `lastNumber + 1` (SPEC §3.12).
+ */
+export function nextSeriesOccurrence(
+  project: Pick<Project, 'series' | 'status'>,
+): { date: string; title: string } | null {
+  if (project.status !== 'aktiv') return null
+  let best: { date: string; title: string } | null = null
+  for (const series of validSeries(project)) {
+    if (series.state !== 'aktiv') continue
+    const next = nextOccurrence(series)
+    if (next && (best === null || next.date < best.date)) best = next
+  }
+  return best
+}
+
+/** Fortschritt x/y: y zählt zusätzlich die noch nicht angelegten Stichtage aktiver Serien mit festem Ende. */
 export function projectProgress(
-  project: Pick<Project, 'id'>,
+  project: Pick<Project, 'id' | 'series' | 'status'>,
   items: readonly Item[],
 ): { done: number; total: number } {
   const steps = projectSteps(project.id, items)
-  return { done: steps.filter((i) => i.status === 'erledigt').length, total: steps.length }
+  const planned =
+    project.status === 'aktiv'
+      ? validSeries(project)
+          .filter((s) => s.state === 'aktiv')
+          .reduce((sum, s) => sum + remainingOccurrences(s), 0)
+      : 0
+  return {
+    done: steps.filter((i) => i.status === 'erledigt').length,
+    total: steps.length + planned,
+  }
 }
 
-/** Aktives Projekt ohne offenen Schritt ⇒ „⚠ Nächsten Schritt festlegen“. */
+/** Aktives Projekt ohne offenen Schritt und ohne weiteren Serientermin ⇒ „⚠ Nächsten Schritt festlegen“. */
 export function needsNextStep(project: Project, items: readonly Item[]): boolean {
-  return project.status === 'aktiv' && nextStepOf(project, items) === null
+  return (
+    project.status === 'aktiv' &&
+    nextStepOf(project, items) === null &&
+    nextSeriesOccurrence(project) === null
+  )
 }
 
 // --- Sortierung und Filter ---------------------------------------------------

@@ -199,7 +199,7 @@ describe('Anlage von Serien-Instanzen im Sync', () => {
     at('2026-10-26T08:00:00+01:00')
     await syncNow()
     expect((await listItems()).map((i) => [i.title, i.dueDate])).toEqual([
-      ['Übungsblatt 1', '2026-10-23'],
+      ['Übungsblatt 1', '2026-10-22'],
       ['Blatt 2', '2026-10-29'],
     ])
     await endSeries(project.id, series.id)

@@ -1,5 +1,5 @@
 import type { Item, Project, StepSeries } from '../data/types'
-import { toIso } from './time'
+import { nowIso, toIso } from './time'
 
 /** Obergrenze neu angelegter Instanzen je Sync und Serie (SPEC §3.12). */
 export const MAX_INSTANCES_PER_SYNC = 10
@@ -28,10 +28,10 @@ const validWeekday = (n: number): boolean => Number.isInteger(n) && n >= 1 && n 
 /**
  * Stichtage der Serie nach `fromExclusive` (`null` = ab Start) bis einschließlich `toInclusive`
  * (`null` = nur durch Ende begrenzt), höchstens `limit` Stück. Erster Stichtag = erster `weekday`
- * ab `startDate`, danach alle `every` Wochen; Ende durch `endDate` bzw. `count` (Nummer, daher
- * höchstens `count - lastNumber` weitere Stichtage). Ungültiger Wochentag ⇒ keine Stichtage.
+ * ab `startDate`, danach alle `every` Wochen, ohne `skippedDates`; Ende nur durch `endDate`
+ * (`count` kennt diese Funktion nicht). Ungültiger Wochentag ⇒ keine Stichtage.
  */
-function nextDates(
+function walk(
   series: StepSeries,
   fromExclusive: string | null,
   toInclusive: string | null,
@@ -40,21 +40,87 @@ function nextDates(
   if (!validWeekday(series.weekday)) return []
   const step = 7 * Math.max(1, Math.floor(series.every))
   const first = onOrAfterWeekday(series.startDate, series.weekday)
-  const remaining = series.count === null ? Infinity : series.count - series.lastNumber
-  const cap = Math.min(limit, remaining)
+  const skipped = new Set(series.skippedDates)
   let k = 0
   if (fromExclusive !== null && dayMs(first) <= dayMs(fromExclusive)) {
     k = Math.floor((dayMs(fromExclusive) - dayMs(first)) / DAY_MS / step) + 1
   }
   const dates: string[] = []
-  while (dates.length < cap) {
+  while (dates.length < limit) {
     const date = addDays(first, k * step)
     if (toInclusive !== null && date > toInclusive) break
     if (series.endDate !== null && date > series.endDate) break
-    dates.push(date)
     k++
+    if (!skipped.has(date)) dates.push(date)
   }
   return dates
+}
+
+/** Wie `walk`, zusätzlich begrenzt durch `count` (Nummer, daher höchstens `count - lastNumber` weitere). */
+function nextDates(
+  series: StepSeries,
+  fromExclusive: string | null,
+  toInclusive: string | null,
+  limit: number,
+): string[] {
+  const remaining = series.count === null ? Infinity : series.count - series.lastNumber
+  return walk(series, fromExclusive, toInclusive, Math.min(limit, remaining))
+}
+
+/** Der `n`-te Stichtag der Serie (1-basiert, ohne Ausfälle); `null` jenseits von `count`/`endDate`. */
+export function nthOccurrence(series: StepSeries, n: number): string | null {
+  if (!Number.isInteger(n) || n < 1) return null
+  if (series.count !== null && n > series.count) return null
+  const dates = walk(series, null, null, n)
+  return dates.length === n ? dates[n - 1] : null
+}
+
+/** Die nächsten `n` Stichtage nach `lastDate` – Auswahl für „Ausfall eintragen“ (SPEC §6.3.3). */
+export function upcomingOccurrences(series: StepSeries, n = 8): string[] {
+  return nextDates(series, series.lastDate, null, n)
+}
+
+/** Nächster Stichtag nach `lastDate` (Ausfälle und Ende beachtet) samt Nummer und Titel; `null` ohne weiteren. */
+export function nextOccurrence(series: StepSeries): { date: string; title: string } | null {
+  const number = series.lastNumber + 1
+  const date = nthOccurrence(series, number)
+  return date === null ? null : { date, title: instanceTitle(series.titlePattern, number) }
+}
+
+/** Zahl der Nummern k > `lastNumber` mit Stichtag (bis `count`/`endDate`); 0 bei Serien ohne Ende. */
+export function remainingOccurrences(series: StepSeries): number {
+  if (series.count === null && series.endDate === null) return 0
+  const total = walk(series, null, null, series.count ?? Infinity).length
+  return Math.max(0, total - series.lastNumber)
+}
+
+/** Eingetragene Ausfälle, die noch nach `lastDate` liegen (nur diese lassen sich entfernen). */
+export function futureSkips(series: StepSeries): string[] {
+  return series.skippedDates.filter((d) => series.lastDate === null || d > series.lastDate)
+}
+
+/** Menge der Ausfälle mit `date` ergänzt bzw. ohne `date` (sortiert, ohne Doppelte). */
+export function withSkippedDate(skipped: readonly string[], date: string): string[] {
+  return [...new Set([...skipped, date])].sort()
+}
+export function withoutSkippedDate(skipped: readonly string[], date: string): string[] {
+  return skipped.filter((d) => d !== date)
+}
+
+/**
+ * Ausfall an einer Instanz mit dem Stichtag `date`: der erste folgende Stichtag, der noch nicht
+ * ausfällt (SPEC §3.12). Liegt hinter dem Ende der Serie kein Stichtag mehr, bleibt der Ausfall trotzdem wirksam.
+ */
+export function nextSkipDate(series: StepSeries, date: string): string {
+  const step = 7 * Math.max(1, Math.floor(series.every))
+  let candidate = addDays(date, step)
+  while (series.skippedDates.includes(candidate)) candidate = addDays(candidate, step)
+  return candidate
+}
+
+/** Stichtage von `lastDate` (exklusiv) bis `yesterday`, die beim Fortsetzen als Ausfall eingetragen werden. */
+export function pausedOccurrences(series: StepSeries, yesterday: string): string[] {
+  return walk(series, series.lastDate, yesterday, Infinity)
 }
 
 /** Stichtage mit `fromExclusive` < Stichtag ≤ `toInclusive` (SPEC §3.12). */
@@ -121,7 +187,7 @@ export function instanceId(projectId: string, seriesId: string, date: string): s
 }
 
 /** Stichtag (`YYYY-MM-DD`) aus einer Instanz-ID, sonst `null`. */
-function dateOfInstanceId(id: string): string | null {
+export function instanceDate(id: string): string | null {
   const match = /^(\d{4})(\d{2})(\d{2})-/.exec(id)
   return match ? `${match[1]}-${match[2]}-${match[3]}` : null
 }
@@ -157,24 +223,28 @@ export function dueInstances(
   let lastDate = series.lastDate
   for (const item of ofSeries) {
     lastNumber = Math.max(lastNumber, item.seriesNumber ?? 0)
-    const date = dateOfInstanceId(item.id)
+    const date = instanceDate(item.id)
     if (date !== null && (lastDate === null || date > lastDate)) lastDate = date
   }
   const result: DueResult = { instances: [], lastNumber, lastDate }
   if (series.state !== 'aktiv') return result
   const ids = new Set(existingItems.map((i) => i.id))
   let order = own.reduce((m, i) => Math.max(m, i.projectOrder ?? 0), 0)
-  const dates = nextDates({ ...series, lastNumber }, lastDate, today, max)
-  for (const date of dates) {
+  // Nummernbasiert: Instanz k gehört zum k-ten Stichtag (auch wenn lastDate durch Bearbeiten davon abweicht).
+  let created = 0
+  for (let k = lastNumber + 1; created < max; k++) {
+    const date = nthOccurrence(series, k)
+    if (date === null || date > today) break
+    result.lastNumber = k
+    if (result.lastDate === null || date > result.lastDate) result.lastDate = date
     const id = instanceId(project.id, series.id, date)
     if (ids.has(id)) continue
-    result.lastNumber += 1
-    result.lastDate = date
+    created++
     const stamp = midnightIso(date)
     result.instances.push({
       id,
       type: 'aufgabe',
-      title: instanceTitle(series.titlePattern, result.lastNumber),
+      title: instanceTitle(series.titlePattern, k),
       notes: '',
       categoryId: project.categoryId,
       status: 'offen',
@@ -190,9 +260,85 @@ export function dueInstances(
       projectId: project.id,
       projectOrder: ++order,
       seriesId: series.id,
-      seriesNumber: result.lastNumber,
+      seriesNumber: k,
       v: 2,
     })
   }
   return result
+}
+
+export interface InstanceChange {
+  from: Item
+  to: Item
+}
+
+export interface RecomputePlan {
+  /** Geänderte Instanzen; bei anderer ID ersetzt `to` die Datei von `from`. */
+  changes: InstanceChange[]
+  /** Gelöschte künftige Instanzen (entstehen an ihrem Stichtag neu). */
+  deleted: Item[]
+  /** Neuer Fortschritt der Serie: nach Löschungen vor der kleinsten gelöschten Nummer, sonst unverändert. */
+  lastNumber: number
+  lastDate: string | null
+}
+
+export interface RecomputeOptions {
+  /** `true`: `dueDate` neu nach Regel (Bearbeiten); `false`: nur bei geändertem Stichtag (Ausfall). */
+  refreshDue: boolean
+  /** Instanz, die unangetastet bleibt (die ausfallende selbst). */
+  exceptId?: string
+}
+
+/**
+ * Berechnet die offenen Instanzen einer Serie neu (SPEC §3.12): Nr n gehört zum n-ten Stichtag der
+ * (neuen) Regel. Anderer Stichtag ≤ heute ⇒ Datei mit der ID des neuen Stichtags ersetzt die alte;
+ * nach heute ⇒ löschen. Erledigte Instanzen und Instanzen jenseits des Serienendes bleiben.
+ */
+export function recomputeOpenInstances(
+  projectId: string,
+  series: StepSeries,
+  items: readonly Item[],
+  today: string,
+  options: RecomputeOptions,
+): RecomputePlan {
+  const own = items.filter(
+    (i) => i.projectId === projectId && i.seriesId === series.id && i.seriesNumber !== undefined,
+  )
+  const recomputed = (i: Item): boolean => i.status === 'offen' && i.id !== options.exceptId
+  // Besetzt ist nur, was bleibt – offene Instanzen der Serie ziehen ja selbst um.
+  const taken = new Set(items.filter((i) => !(own.includes(i) && recomputed(i))).map((i) => i.id))
+  const changes: InstanceChange[] = []
+  const deleted: Item[] = []
+  const now = nowIso()
+  for (const item of own) {
+    if (!recomputed(item)) continue
+    const oldDate = instanceDate(item.id)
+    const newDate = nthOccurrence(series, item.seriesNumber ?? 0)
+    if (oldDate === null || newDate === null) continue
+    const due = dueDateFor(series, newDate)
+    if (newDate === oldDate) {
+      if (options.refreshDue && due !== (item.dueDate ?? null)) {
+        changes.push({ from: item, to: { ...item, dueDate: due, updatedAt: now } })
+      }
+      continue
+    }
+    const newId = instanceId(projectId, series.id, newDate)
+    // Ziel-ID belegt (z. B. von Hand angelegte Datei): die Instanz wird gelöscht und entsteht nicht doppelt.
+    if (newDate > today || taken.has(newId)) {
+      deleted.push(item)
+      continue
+    }
+    changes.push({ from: item, to: { ...item, id: newId, dueDate: due, updatedAt: now } })
+  }
+  // Wurden künftige Instanzen gelöscht, entstehen sie ab der kleinsten gelöschten Nummer neu; sonst
+  // bleibt der Fortschritt stehen (von Hand gelöschte Instanzen entstehen nicht neu).
+  let lastNumber = series.lastNumber
+  if (deleted.length > 0) {
+    lastNumber = Math.min(...deleted.map((i) => i.seriesNumber ?? 0)) - 1
+  }
+  const lastDate =
+    lastNumber > 0
+      ? (nthOccurrence(series, lastNumber) ?? (deleted.length > 0 ? null : series.lastDate))
+      : null
+  return { changes, deleted, lastNumber, lastDate }
 }

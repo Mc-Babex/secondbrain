@@ -4,6 +4,7 @@ import {
   addInboxEntry,
   completeItem,
   createItem,
+  createScheduledTask,
   deleteInboxEntry,
   deleteItem,
   fileInboxEntry,
@@ -44,6 +45,52 @@ const suggestion: Suggestion = {
 async function outboxOps(): Promise<Record<string, string>> {
   return Object.fromEntries((await getOutbox()).map((e) => [e.path, e.op]))
 }
+
+describe('createScheduledTask', () => {
+  const schedule = {
+    start: '2026-10-20T09:00:00+02:00',
+    durationMin: 60,
+    calendarEventId: 'ev-1',
+  }
+
+  it('legt eine Aufgabe mit Termin an und trägt put in die Outbox ein', async () => {
+    const item = await createScheduledTask({
+      title: 'Zahnarzt',
+      notes: 'Bitte pünktlich',
+      categoryId: 'privat',
+      schedule,
+    })
+    expect(item).toMatchObject({
+      type: 'aufgabe',
+      title: 'Zahnarzt',
+      notes: 'Bitte pünktlich',
+      gtd: 'naechster-schritt',
+      categoryId: 'privat',
+      schedule,
+    })
+    expect(item.projectId).toBeUndefined()
+    expect(await outboxOps()).toEqual({ [`items/${item.id}.json`]: 'put' })
+  })
+
+  it('mit Projekt: projectId gesetzt, projectOrder hinten angehängt', async () => {
+    const first = await createScheduledTask({
+      title: 'A',
+      notes: '',
+      categoryId: 'privat',
+      projectId: 'p1',
+      schedule,
+    })
+    const second = await createScheduledTask({
+      title: 'B',
+      notes: '',
+      categoryId: 'privat',
+      projectId: 'p1',
+      schedule,
+    })
+    expect(first.projectId).toBe('p1')
+    expect(second.projectOrder).toBe((first.projectOrder ?? 0) + 1)
+  })
+})
 
 describe('Eingangskorb', () => {
   it('legt einen Eintrag an und trägt put in die Outbox ein', async () => {

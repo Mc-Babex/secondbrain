@@ -132,13 +132,13 @@ describe('Reiter „Warte auf“', () => {
     await waiting('B', '2026-10-10')
     await task('Offen')
     render(<TasksPage />)
-    expect(await screen.findByRole('tab', { name: 'Warte auf (2)' })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: 'Warte auf, 2' })).toBeInTheDocument()
     await task('C', {
       gtd: 'warten',
       waiting: { person: 'x', since: '2026-10-10', followUpOn: null },
     })
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: 'Warte auf (3)' })).toBeInTheDocument(),
+      expect(screen.getByRole('tab', { name: 'Warte auf, 3' })).toBeInTheDocument(),
     )
   })
 
@@ -180,7 +180,7 @@ describe('Reiter „Irgendwann“', () => {
   it('zeigt den leeren Zustand und die Anzahl', async () => {
     await task('I', { gtd: 'irgendwann' })
     render(<TasksPage />)
-    expect(await screen.findByRole('tab', { name: 'Irgendwann (1)' })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: 'Irgendwann, 1' })).toBeInTheDocument()
   })
 })
 

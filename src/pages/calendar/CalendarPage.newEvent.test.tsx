@@ -41,16 +41,23 @@ beforeEach(async () => {
   localStorage.setItem(CONNECTED_KEY, '1')
   calendar.listEvents.mockReset().mockResolvedValue([TILE])
   calendar.createCalendarEvent.mockReset().mockResolvedValue(TILE)
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-    top: 0,
-    left: 0,
-    right: 100,
-    bottom: COLUMN_HEIGHT,
-    width: 100,
-    height: COLUMN_HEIGHT,
-    x: 0,
-    y: 0,
-    toJSON: () => ({}),
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    // Spalten nebeneinander: 90 px breit, ab x = 50, Abstand 100.
+    const index = [...document.querySelectorAll('[data-day]')].indexOf(this)
+    const left = index >= 0 ? 50 + index * 100 : 0
+    return {
+      top: 0,
+      left,
+      right: left + 90,
+      bottom: COLUMN_HEIGHT,
+      width: 90,
+      height: COLUMN_HEIGHT,
+      x: left,
+      y: 0,
+      toJSON: () => ({}),
+    }
   })
   await resetDb(true)
 })
@@ -106,12 +113,16 @@ describe('Langes Drücken auf freie Zeit', () => {
     vi.useFakeTimers({ now: new Date('2026-10-17T10:07:00+02:00') })
   }
 
+  /** Eine x-Stelle innerhalb der Spalte (die Spalten sind im Test 90 px breit, ab x = 50, Abstand 100). */
+  const xIn = (element: HTMLElement): number =>
+    60 + [...document.querySelectorAll('[data-day]')].indexOf(element) * 100
+
   const hold = (element: HTMLElement, y: number, ms = 450): void => {
-    fireEvent.pointerDown(element, { clientX: 20, clientY: y })
+    fireEvent.pointerDown(element, { clientX: xIn(element), clientY: y })
     act(() => {
       vi.advanceTimersByTime(ms)
     })
-    fireEvent.pointerUp(element, { clientX: 20, clientY: y })
+    fireEvent.pointerUp(element, { clientX: xIn(element), clientY: y })
   }
 
   it('öffnet nach 0,4 s in der Tagesansicht die abgerundete Viertelstunde', async () => {
@@ -155,7 +166,7 @@ describe('Langes Drücken auf freie Zeit', () => {
     delete (navigator as { vibrate?: unknown }).vibrate
   })
 
-  it('öffnet nach der Schwelle auch bei pointercancel (Systemgeste)', async () => {
+  it('verwirft nach der Schwelle bei pointercancel (Systemgeste)', async () => {
     render(<CalendarPage />)
     await screen.findByRole('button', { name: /Zahnarzt/ })
     fakeAllTimers()
@@ -164,8 +175,129 @@ describe('Langes Drücken auf freie Zeit', () => {
     act(() => {
       vi.advanceTimersByTime(450)
     })
+    expect(screen.getByTestId('hold-mark')).toBeInTheDocument()
     fireEvent.pointerCancel(col)
-    expect(field('Beginn')).toHaveValue('10:15')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('hold-mark')).not.toBeInTheDocument()
+  })
+
+  it('verwirft nach der Schwelle bei Escape', async () => {
+    render(<CalendarPage />)
+    await screen.findByRole('button', { name: /Zahnarzt/ })
+    fakeAllTimers()
+    const col = column('2026-10-17')
+    fireEvent.pointerDown(col, { clientX: 20, clientY: yFor(622) })
+    act(() => {
+      vi.advanceTimersByTime(450)
+    })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.pointerUp(col, { clientX: 20, clientY: yFor(622) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('hold-mark')).not.toBeInTheDocument()
+  })
+
+  describe('Halten und Ziehen', () => {
+    const holdAndDrag = (
+      from: HTMLElement,
+      startY: number,
+      to: { x: number; y: number },
+      target: HTMLElement = from,
+    ): void => {
+      fireEvent.pointerDown(from, { clientX: xIn(from), clientY: startY })
+      act(() => {
+        vi.advanceTimersByTime(450)
+      })
+      fireEvent.pointerMove(target, { clientX: to.x, clientY: to.y })
+    }
+
+    it('verschiebt den Block im 15-Minuten-Raster und öffnet erst beim Loslassen', async () => {
+      render(<CalendarPage />)
+      await screen.findByRole('button', { name: /Zahnarzt/ })
+      fakeAllTimers()
+      const col = column('2026-10-17')
+      holdAndDrag(col, yFor(615), { x: xIn(col), y: yFor(660) })
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByTestId('hold-mark').style.top).toBe(`${(660 / 1440) * 100}%`)
+      fireEvent.pointerUp(col, { clientX: 20, clientY: yFor(660) })
+      expect(field('Beginn')).toHaveValue('11:00')
+      expect(field('Ende')).toHaveValue('12:00')
+    })
+
+    it('scrollt am unteren Rand und der Block folgt', async () => {
+      render(<CalendarPage />)
+      await screen.findByRole('button', { name: /Zahnarzt/ })
+      fakeAllTimers()
+      const scroller = document.querySelector<HTMLElement>('[data-testid="time-grid"]')!
+        .parentElement!
+      scroller.scrollTop = 0
+      scroller.getBoundingClientRect = () =>
+        ({ top: 0, left: 0, right: 400, bottom: 300, width: 400, height: 300 }) as DOMRect
+      const col = column('2026-10-17')
+      holdAndDrag(col, 250, { x: xIn(col), y: 299 })
+      const topBefore = parseFloat(screen.getByTestId('hold-mark').style.top)
+      act(() => {
+        vi.advanceTimersByTime(100)
+      })
+      expect(scroller.scrollTop).toBeGreaterThan(0)
+      expect(parseFloat(screen.getByTestId('hold-mark').style.top)).toBeGreaterThan(topBefore)
+      fireEvent.pointerCancel(col)
+    })
+
+    it('bleibt innerhalb von 0 bis 24 Uhr', async () => {
+      render(<CalendarPage />)
+      await screen.findByRole('button', { name: /Zahnarzt/ })
+      fakeAllTimers()
+      const col = column('2026-10-17')
+      holdAndDrag(col, yFor(1300), { x: xIn(col), y: yFor(1430) })
+      fireEvent.pointerUp(col, { clientX: 20, clientY: yFor(1430) })
+      expect(field('Beginn')).toHaveValue('23:00')
+    })
+
+    it('wechselt in der Wochenansicht beim seitlichen Ziehen den Tag', async () => {
+      render(<CalendarPage />)
+      fireEvent.click(screen.getByRole('button', { name: 'Woche' }))
+      await screen.findByRole('button', { name: /Zahnarzt/ })
+      await waitFor(() => column('2026-10-14'))
+      fakeAllTimers()
+      const from = column('2026-10-14')
+      const days = [...document.querySelectorAll('[data-day]')]
+      const targetIndex = days.indexOf(column('2026-10-16'))
+      holdAndDrag(from, yFor(540), { x: 50 + targetIndex * 100 + 10, y: yFor(540) })
+      expect(within(column('2026-10-16')).getByTestId('hold-mark')).toBeInTheDocument()
+      expect(within(from).queryByTestId('hold-mark')).not.toBeInTheDocument()
+      fireEvent.pointerUp(from, { clientX: 50 + targetIndex * 100 + 10, clientY: yFor(540) })
+      expect(field('Datum')).toHaveValue('2026-10-16')
+      expect(field('Beginn')).toHaveValue('09:00')
+    })
+
+    it('Bewegung vor 0,4 s ist kein Halten', async () => {
+      render(<CalendarPage />)
+      await screen.findByRole('button', { name: /Zahnarzt/ })
+      fakeAllTimers()
+      const col = column('2026-10-17')
+      fireEvent.pointerDown(col, { clientX: 20, clientY: yFor(600) })
+      act(() => {
+        vi.advanceTimersByTime(200)
+      })
+      fireEvent.pointerMove(col, { clientX: 20, clientY: yFor(660) })
+      act(() => {
+        vi.advanceTimersByTime(500)
+      })
+      fireEvent.pointerUp(col, { clientX: 20, clientY: yFor(660) })
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('hold-mark')).not.toBeInTheDocument()
+    })
+
+    it('pointercancel nach dem Ziehen öffnet nichts', async () => {
+      render(<CalendarPage />)
+      await screen.findByRole('button', { name: /Zahnarzt/ })
+      fakeAllTimers()
+      const col = column('2026-10-17')
+      holdAndDrag(col, yFor(600), { x: xIn(col), y: yFor(660) })
+      fireEvent.pointerCancel(col)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('hold-mark')).not.toBeInTheDocument()
+    })
   })
 
   it('lässt den Klick nach dem Loslassen den neuen Dialog nicht treffen', async () => {
@@ -281,16 +413,11 @@ describe('Langes Drücken auf freie Zeit', () => {
       expectNothing()
     })
 
-    it('pointerleave bei der Maus, auch nach der Schwelle', async () => {
+    it('pointerleave bei der Maus vor der Schwelle', async () => {
       const col = await ready()
       fireEvent.pointerDown(col, { clientX: 20, clientY: 300, pointerType: 'mouse' })
       fireEvent.pointerLeave(col, { pointerType: 'mouse' })
       wait()
-      fireEvent.pointerUp(col, { clientX: 20, clientY: 300 })
-      expectNothing()
-      fireEvent.pointerDown(col, { clientX: 20, clientY: 300, pointerType: 'mouse' })
-      wait(450)
-      fireEvent.pointerLeave(col, { pointerType: 'mouse' })
       fireEvent.pointerUp(col, { clientX: 20, clientY: 300 })
       expectNothing()
     })

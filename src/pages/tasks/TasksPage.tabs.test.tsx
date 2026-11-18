@@ -62,7 +62,7 @@ describe('Aufgabenseite: Aufbau und Reiter', () => {
     const user = userEvent.setup()
     await task('Kurz', { durationMin: 10 })
     const first = render(<TasksPage />)
-    await user.click(await screen.findByRole('button', { name: '≤ 15' }))
+    await user.click(await screen.findByRole('button', { name: '≤ 15 Min.' }))
     await user.click(screen.getByRole('tab', { name: /Warte auf/ }))
     first.unmount()
     render(<TasksPage />)
@@ -71,7 +71,7 @@ describe('Aufgabenseite: Aufbau und Reiter', () => {
       'true',
     )
     await user.click(screen.getByRole('tab', { name: 'Aktuell' }))
-    expect(screen.getByRole('button', { name: '≤ 15' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '≤ 15 Min.' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('startet ohne verfügbaren localStorage mit den Standardwerten und ohne Fehler', async () => {
@@ -93,16 +93,17 @@ describe('Aufgabenseite: Aufbau und Reiter', () => {
     expect(screen.getByRole('tab', { name: /Irgendwann/ })).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('hat Tab-Muster mit Anzahl, Kurzform und vollem Namen als aria-label', async () => {
+  it('hat Tab-Muster mit Anzahl (zusätzlich im aria-label) und vollen Namen als aria-label', async () => {
     await task('W', { gtd: 'warten' })
     await task('I1', { gtd: 'irgendwann' })
     await task('I2', { gtd: 'irgendwann' })
     await createProject({ title: 'Umzug', categoryId: 'privat' })
     render(<TasksPage />)
-    const tab = await screen.findByRole('tab', { name: 'Irgendwann (2)' })
-    expect(tab).toHaveTextContent('Irgendw.')
-    expect(screen.getByRole('tab', { name: 'Projekte (1)' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Warte auf (1)' })).toBeInTheDocument()
+    const tab = await screen.findByRole('tab', { name: 'Irgendwann, 2' })
+    expect(tab).toHaveTextContent('Irgendwann')
+    expect(tab.querySelector('[class*="count"]')).toHaveTextContent('2')
+    expect(screen.getByRole('tab', { name: 'Projekte, 1' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Warte auf, 1' })).toBeInTheDocument()
     expect(screen.getByRole('tabpanel')).toHaveAttribute(
       'aria-labelledby',
       screen.getByRole('tab', { name: 'Aktuell' }).id,
@@ -232,7 +233,7 @@ describe('Reiter „Aktuell“', () => {
     expect(within(arbeit).getByText('Projekt: Umzug')).toBeInTheDocument()
   })
 
-  it('Zeitfilter: ≤ 15/30/60/alle blendet größere und fehlende Dauer aus', async () => {
+  it('Zeitfilter: ≤ 15 Min./alle blendet größere und fehlende Dauer aus', async () => {
     const user = userEvent.setup()
     await task('A10', { durationMin: 10 })
     await task('B30', { durationMin: 30 })
@@ -245,12 +246,9 @@ describe('Reiter „Aktuell“', () => {
       within(section)
         .queryAllByRole('checkbox')
         .map((c) => c.getAttribute('aria-label'))
-    await user.click(within(section).getByRole('button', { name: '≤ 15' }))
+    expect(within(section).queryByRole('button', { name: '≤ 30' })).toBeNull()
+    await user.click(within(section).getByRole('button', { name: '≤ 15 Min.' }))
     expect(visible()).toEqual(['A10 erledigt'])
-    await user.click(within(section).getByRole('button', { name: '≤ 30' }))
-    expect(visible()).toEqual(['A10 erledigt', 'B30 erledigt'])
-    await user.click(within(section).getByRole('button', { name: '≤ 60 Min.' }))
-    expect(visible()).toEqual(['A10 erledigt', 'B30 erledigt', 'C60 erledigt'])
     await user.click(within(section).getByRole('button', { name: 'alle' }))
     expect(visible()).toHaveLength(5)
   })

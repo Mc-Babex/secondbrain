@@ -102,7 +102,7 @@ describe('Reiter „Projekte“: anlegen, bearbeiten, löschen', () => {
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Ja, löschen' }),
     )
     await waitFor(async () => expect(await listProjects()).toHaveLength(1))
-    expect(await screen.findByRole('tab', { name: /Projekte \(1\)/ })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /Projekte, 1/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Leer/ })).not.toBeInTheDocument()
   })
 })
@@ -200,7 +200,7 @@ describe('Projekt abschließen', () => {
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Ja, abschließen' }),
     )
     await waitFor(async () => expect((await listProjects())[0].status).toBe('erledigt'))
-    expect(await screen.findByRole('tab', { name: /Projekte \(0\)/ })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /Projekte, 0/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Fertig/ })).not.toBeInTheDocument()
     expect((await listItems())[0]).toEqual(
       expect.objectContaining({ status: 'erledigt', archivedWithProject: true }),

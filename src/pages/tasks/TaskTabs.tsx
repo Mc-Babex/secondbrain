@@ -6,15 +6,13 @@ import styles from './TaskTabs.module.css'
 interface TabDef {
   id: TaskTab
   label: string
-  /** Kurzform für schmale Anzeigen; der volle Name steht im `aria-label`. */
-  short?: string
 }
 
 const TABS: readonly TabDef[] = [
   { id: 'aktuell', label: 'Aktuell' },
   { id: 'projekte', label: 'Projekte' },
   { id: 'warten', label: 'Warte auf' },
-  { id: 'irgendwann', label: 'Irgendwann', short: 'Irgendw.' },
+  { id: 'irgendwann', label: 'Irgendwann' },
 ]
 
 interface TaskTabsProps {
@@ -61,11 +59,11 @@ export function TaskTabs({ active, onSelect, counts }: TaskTabsProps) {
             className={selected ? `${styles.tab} ${styles.selected}` : styles.tab}
             aria-selected={selected}
             aria-controls={panelId(tab.id)}
-            aria-label={count === null ? undefined : `${tab.label} (${count})`}
+            aria-label={count === null ? undefined : `${tab.label}, ${count}`}
             tabIndex={selected ? 0 : -1}
             onClick={() => onSelect(tab.id)}
           >
-            <span>{tab.short ?? tab.label}</span>
+            <span>{tab.label}</span>
             {count !== null && <span className={styles.count}>{count}</span>}
           </button>
         )

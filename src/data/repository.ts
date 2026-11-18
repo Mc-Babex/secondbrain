@@ -1,6 +1,15 @@
 import { categoryIdFromName } from '../lib/categoryId'
 import { berlinDate, projectSteps } from '../lib/gtd'
-import { addDays } from '../lib/series'
+import {
+  addDays,
+  instanceDate,
+  nextSkipDate,
+  pausedOccurrences,
+  recomputeOpenInstances,
+  withSkippedDate,
+  withoutSkippedDate,
+  type RecomputePlan,
+} from '../lib/series'
 import { findSameArticle } from '../lib/shopping'
 import { appointmentEnd, hasEnded, selectPastAppointments } from '../lib/pastAppointments'
 import { nowIso, toIso } from '../lib/time'
@@ -39,6 +48,7 @@ import {
   type ItemType,
   type LastRun,
   type Project,
+  type Schedule,
   type Settings,
   type StepSeries,
   type Suggestion,
@@ -530,6 +540,25 @@ export async function fileInboxEntry(
 }
 
 /**
+ * Legt eine Aufgabe mit Termin an (`schedule` inkl. `calendarEventId`), optional als Schritt eines Projekts
+ * (hinten angehängt). Lokal + Outbox, ohne Netz.
+ */
+export async function createScheduledTask(fields: {
+  title: string
+  notes: string
+  categoryId: string
+  schedule: Schedule
+  projectId?: string | null
+}): Promise<Item> {
+  const { projectId, ...rest } = fields
+  const projectFields =
+    typeof projectId === 'string'
+      ? { projectId, projectOrder: nextProjectOrder(projectId, await listItems()) }
+      : {}
+  return createItem({ ...rest, type: 'aufgabe', gtd: 'naechster-schritt', ...projectFields })
+}
+
+/**
  * Ordnet einen Eintrag einem Projekt zu (`projectOrder` hinten angehängt) oder löst ihn (`null`:
  * `projectId` = `null`, `projectOrder` entfällt). Dasselbe Projekt lässt die Reihenfolge unverändert.
  */
@@ -895,6 +924,7 @@ export async function addSeries(projectId: string, fields: SeriesFields): Promis
       titlePattern: fields.titlePattern.trim(),
       id,
       state: 'aktiv',
+      skippedDates: [],
       lastNumber: 0,
       lastDate: null,
     }
@@ -905,18 +935,196 @@ export async function addSeries(projectId: string, fields: SeriesFields): Promis
   return result.added
 }
 
-/** Ändert Muster, Rhythmus, Start, Ende, Fälligkeit oder Dauer; `lastNumber`/`lastDate` und Instanzen bleiben. */
+/** Wendet die Eingaben auf die Serie an; ein Ende per Datum ersetzt das per Anzahl und umgekehrt. */
+function mergeSeries(series: StepSeries, patch: Partial<SeriesFields>): StepSeries {
+  const merged = { ...series, ...patch }
+  if (patch.endDate != null) merged.count = null
+  if (patch.count != null) merged.endDate = null
+  return {
+    ...merged,
+    titlePattern: merged.titlePattern.trim(),
+    skippedDates: merged.skippedDates.filter((d) => d >= merged.startDate),
+  }
+}
+
+/** Wirken Start, Wochentag, Rhythmus oder Fälligkeit auf bestehende Instanzen? (SPEC §3.12) */
+function changesSchedule(before: StepSeries, after: StepSeries): boolean {
+  return (
+    before.startDate !== after.startDate ||
+    before.weekday !== after.weekday ||
+    before.every !== after.every ||
+    before.dueWeekday !== after.dueWeekday
+  )
+}
+
+/** Schreibvorgänge für eine Neuberechnung; Ablegen an einem Pfad geht vor dem Löschen desselben Pfads. */
+async function recomputeWrites(plan: RecomputePlan): Promise<LocalWrite[]> {
+  const writes = new Map<string, LocalWrite>()
+  for (const item of plan.deleted) {
+    writes.set(itemPath(item.id), { path: itemPath(item.id), op: 'delete' })
+  }
+  for (const { from, to } of plan.changes) {
+    if (from.id !== to.id) writes.set(itemPath(from.id), { path: itemPath(from.id), op: 'delete' })
+  }
+  for (const { from, to } of plan.changes) {
+    const data = { ...(await withRaw(from, to, ['dueDate'])), v: FORMAT_V }
+    writes.set(itemPath(to.id), { path: itemPath(to.id), op: 'put', data })
+  }
+  return [...writes.values()]
+}
+
+function findSeries(project: Project, seriesId: string): StepSeries {
+  const found = project.series.find((s): s is StepSeries => isStepSeries(s) && s.id === seriesId)
+  if (found === undefined) throw new Error(`Serie ${seriesId} nicht gefunden`)
+  return found
+}
+
+/** Übernimmt den Fortschritt (`lastNumber`/`lastDate`) aus der Neuberechnung (SPEC §3.12). */
+function withPlanProgress(series: StepSeries, plan: RecomputePlan): StepSeries {
+  return { ...series, lastNumber: plan.lastNumber, lastDate: plan.lastDate }
+}
+
+export interface SeriesUpdate {
+  project: Project
+  /** Gelöschte künftige Instanzen (ihre Google-Termine muss die aufrufende Schicht entfernen). */
+  removed: Item[]
+}
+
+/**
+ * Ändert Muster, Rhythmus, Start, Ende, Fälligkeit oder Dauer. Bei Start, Wochentag, Rhythmus oder
+ * Fälligkeit werden zusätzlich die offenen Instanzen neu berechnet (SPEC §3.12) – Instanzen und
+ * Projektdatei in einem lokalen Schritt.
+ */
+export async function updateSeriesRecomputing(
+  projectId: string,
+  seriesId: string,
+  patch: Partial<SeriesFields>,
+  today: string = berlinDate(new Date()),
+): Promise<SeriesUpdate> {
+  checkSeriesFields(patch)
+  const project = parseProject((await getFile(projectPath(projectId)))?.data, projectId)
+  const before = findSeries(project, seriesId)
+  const merged = mergeSeries(before, patch)
+  if (!changesSchedule(before, merged)) {
+    const saved = await changeSeries(projectId, seriesId, (s) => mergeSeries(s, patch))
+    return { project: saved, removed: [] }
+  }
+  const plan = recomputeOpenInstances(projectId, merged, await listItems(), today, {
+    refreshDue: true,
+  })
+  const next = withPlanProgress(merged, plan)
+  const updated: Project = {
+    ...project,
+    series: project.series.map((s) => (isStepSeries(s) && s.id === seriesId ? next : s)),
+    updatedAt: nowIso(),
+    v: FORMAT_V,
+  }
+  await commitLocal([
+    ...(await recomputeWrites(plan)),
+    { path: projectPath(projectId), op: 'put', data: updated },
+  ])
+  notifyChange()
+  return { project: updated, removed: plan.deleted }
+}
+
 export function updateSeries(
   projectId: string,
   seriesId: string,
   patch: Partial<SeriesFields>,
+  today?: string,
 ): Promise<Project> {
   checkSeriesFields(patch)
+  return updateSeriesRecomputing(projectId, seriesId, patch, today).then((r) => r.project)
+}
+
+export interface SkipResult {
+  item: Item
+  /** Um so viele Wochen ist die Instanz nach hinten gerückt (`every`). */
+  weeks: number
+  removed: Item[]
+}
+
+/**
+ * „Fällt aus“ an einer offenen Serien-Instanz (SPEC §3.12): der nächste noch nicht ausgefallene Stichtag
+ * kommt in `skippedDates`, `dueDate` rückt um `every` Wochen, folgende offene Instanzen rücken nach.
+ */
+export async function skipSeriesInstance(
+  itemId: string,
+  today: string = berlinDate(new Date()),
+): Promise<SkipResult> {
+  const item = parseItem((await getFile(itemPath(itemId)))?.data, itemId)
+  const date = instanceDate(item.id)
+  if (
+    item.status !== 'offen' ||
+    typeof item.projectId !== 'string' ||
+    typeof item.seriesId !== 'string' ||
+    date === null
+  ) {
+    throw new Error('Dieser Schritt gehört zu keiner laufenden Serie.')
+  }
+  const project = parseProject((await getFile(projectPath(item.projectId)))?.data, item.projectId)
+  const series = findSeries(project, item.seriesId)
+  if (series.state === 'beendet') throw new Error('Die Serie ist beendet.')
+  const skipped: StepSeries = {
+    ...series,
+    skippedDates: withSkippedDate(series.skippedDates, nextSkipDate(series, date)),
+  }
+  const plan = recomputeOpenInstances(project.id, skipped, await listItems(), today, {
+    refreshDue: false,
+    exceptId: item.id,
+  })
+  const now = nowIso()
+  const moved: Item = {
+    ...item,
+    ...(item.dueDate ? { dueDate: addDays(item.dueDate, 7 * series.every) } : {}),
+    updatedAt: now,
+  }
+  const updated: Project = {
+    ...project,
+    series: project.series.map((s) =>
+      isStepSeries(s) && s.id === series.id ? withPlanProgress(skipped, plan) : s,
+    ),
+    updatedAt: now,
+    v: FORMAT_V,
+  }
+  await commitLocal([
+    ...(await recomputeWrites(plan)),
+    {
+      path: itemPath(item.id),
+      op: 'put',
+      data: { ...(await withRaw(item, moved, ['dueDate'])), v: FORMAT_V },
+    },
+    { path: projectPath(project.id), op: 'put', data: updated },
+  ])
+  notifyChange()
+  return { item: moved, weeks: series.every, removed: plan.deleted }
+}
+
+/** Trägt einen künftigen Stichtag (nach `lastDate`) als Ausfall ein. */
+export function addSkippedDate(
+  projectId: string,
+  seriesId: string,
+  date: string,
+): Promise<Project> {
   return changeSeries(projectId, seriesId, (s) => {
-    const merged = { ...s, ...patch }
-    if (patch.endDate != null) merged.count = null
-    if (patch.count != null) merged.endDate = null
-    return { ...merged, titlePattern: merged.titlePattern.trim() }
+    if (!isDateString(date) || (s.lastDate !== null && date <= s.lastDate)) {
+      throw new Error('Nur künftige Stichtage können ausfallen.')
+    }
+    return { ...s, skippedDates: withSkippedDate(s.skippedDates, date) }
+  })
+}
+
+/** Entfernt einen eingetragenen Ausfall, solange sein Stichtag nach `lastDate` liegt. */
+export function removeSkippedDate(
+  projectId: string,
+  seriesId: string,
+  date: string,
+): Promise<Project> {
+  return changeSeries(projectId, seriesId, (s) => {
+    if (s.lastDate !== null && date <= s.lastDate) {
+      throw new Error('Dieser Stichtag liegt nicht mehr in der Zukunft.')
+    }
+    return { ...s, skippedDates: withoutSkippedDate(s.skippedDates, date) }
   })
 }
 
@@ -926,22 +1134,26 @@ export function pauseSeries(projectId: string, seriesId: string): Promise<Projec
   )
 }
 
-/** Setzt eine pausierte Serie fort: `lastDate` = gestern (falls größer), `lastNumber` bleibt. */
+/**
+ * Setzt eine pausierte Serie fort: die Stichtage von `lastDate` (exklusiv) bis gestern fallen als Ausfall
+ * weg, `lastDate` rückt auf den letzten davon; `lastNumber` bleibt (SPEC §3.12).
+ */
 export function resumeSeries(
   projectId: string,
   seriesId: string,
   today: string = berlinDate(new Date()),
 ): Promise<Project> {
   const yesterday = addDays(today, -1)
-  return changeSeries(projectId, seriesId, (s) =>
-    s.state === 'pausiert'
-      ? {
-          ...s,
-          state: 'aktiv',
-          lastDate: s.lastDate !== null && s.lastDate > yesterday ? s.lastDate : yesterday,
-        }
-      : s,
-  )
+  return changeSeries(projectId, seriesId, (s) => {
+    if (s.state !== 'pausiert') return s
+    const paused = pausedOccurrences(s, yesterday)
+    return {
+      ...s,
+      state: 'aktiv',
+      skippedDates: [...new Set([...s.skippedDates, ...paused])].sort(),
+      lastDate: paused.length === 0 ? s.lastDate : paused[paused.length - 1],
+    }
+  })
 }
 
 export function endSeries(projectId: string, seriesId: string): Promise<Project> {

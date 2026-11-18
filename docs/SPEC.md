@@ -400,8 +400,8 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
   Instanzen an. Für jede aktive Serie eines aktiven Projekts:
   1. `lastNumber`/`lastDate` = jeweils Maximum aus Projektdatei **und** vorhandenen Einträgen mit dieser `seriesId`
      (auch archivierten).
-  2. Jeder Stichtag mit `lastDate` < Stichtag ≤ heute (Europe/Berlin) ergibt eine Aufgabe (höchstens 10 je Sync, der
-     Rest beim nächsten): Titel = `titlePattern` mit `{Nr}` = `lastNumber + 1` (fortlaufend), `gtd:
+  2. Für k = `lastNumber + 1`, `+ 2`, …: Ist der k-te Stichtag vorhanden (vor dem Ende) und ≤ heute (Europe/Berlin),
+     ergibt er eine Aufgabe (höchstens 10 je Sync, der Rest beim nächsten): Titel = `titlePattern` mit `{Nr}` = k, `gtd:
      "naechster-schritt"`, `dueDate` = erster `dueWeekday` ab Stichtag, `durationMin`, `categoryId` des Projekts,
      `projectId`, `projectOrder` hinter allen vorhandenen Schritten, `seriesId`, `seriesNumber`, `notes: ""`.
   3. **ID deterministisch:** `<Stichtag YYYYMMDD>-000000-<4 Zeichen a-z0-9 aus einem festen Hash von Projekt-ID,
@@ -424,8 +424,9 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
   und `dueDate` neu; ändert sich ihr Stichtag, ersetzt eine Datei mit der ID des neuen Stichtags (Regel 3) die alte
   (übrige Felder, Titel und `createdAt` bleiben; Google-Termin bleibt verknüpft). Liegt der neue Stichtag nach heute,
   wird die offene Instanz stattdessen gelöscht (Google-Termin wie §6.6) und entsteht an ihrem Stichtag neu.
-  `lastNumber`/`lastDate` = Nummer und Stichtag der höchsten verbleibenden Instanz (keine ⇒ `0`/`null`);
-  `skippedDates` vor dem neuen Start entfallen.
+  Wurden dabei künftige Instanzen gelöscht, wird `lastNumber` auf (kleinste gelöschte Nummer − 1) gesetzt und
+  `lastDate` auf deren Stichtag nach der neuen Regel (Nr 0 ⇒ `null`); sonst bleibt `lastNumber` (so entstehen von
+  Hand gelöschte Instanzen nicht neu) und `lastDate` wird der Stichtag von Nr `lastNumber` nach der neuen Regel. `skippedDates` vor dem neuen Start entfallen.
 
 ### 3.13 Migration auf GTD (Phase 9)
 Reine, idempotente Lese-Funktion, gemeinsam für App und Lauf-Skripte (wie `src/lib/sortWork.ts`):

@@ -5,7 +5,8 @@ import {
   restoreItemWithEvent,
   type RemovedSchedule,
 } from '../../google/itemEvents'
-import { projectSteps } from '../../lib/gtd'
+import { nextSeriesOccurrence, projectSteps } from '../../lib/gtd'
+import { nextSeriesText } from './projects/projectDates'
 import { useTransientNote } from './useTransientNote'
 
 const UNDO_MS = 5000
@@ -56,7 +57,11 @@ export function useStepCompletion(
         (s) => s.status === 'offen' && s.id !== item.id,
       )
       if (next) showHint(`Weiter mit: ${next.title}`)
-      else setDialogProject(project)
+      else {
+        const series = nextSeriesOccurrence(project)
+        if (series) showHint(nextSeriesText(series))
+        else setDialogProject(project)
+      }
     },
     [showHint],
   )

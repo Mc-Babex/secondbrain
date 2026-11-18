@@ -97,6 +97,39 @@ describe('NormalCategoryView Projekte', () => {
     expect(screen.queryByText('Andere Ablage')).not.toBeInTheDocument()
   })
 
+  it('zeigt bei Projekt mit aktiver Serie „Nächstes …“ statt der Warnung', () => {
+    const withSeries = project('p5', 'Mit Serie', {
+      series: [
+        {
+          id: 's1',
+          titlePattern: 'Blatt {Nr}',
+          every: 1,
+          weekday: 1,
+          startDate: '2026-10-19',
+          endDate: '2027-02-12',
+          count: null,
+          dueWeekday: 5,
+          durationMin: 180,
+          state: 'aktiv',
+          skippedDates: [],
+          lastNumber: 5,
+          lastDate: '2026-11-16',
+        },
+      ],
+    })
+    render(
+      <NormalCategoryView
+        category={category}
+        categories={[category]}
+        items={[]}
+        projects={[withSeries]}
+      />,
+    )
+    const section = screen.getByRole('region', { name: 'Projekte' })
+    expect(within(section).getByText('Nächstes: Blatt 6 ab Mo 23.11.')).toBeInTheDocument()
+    expect(within(section).queryByText(/Nächsten Schritt festlegen/)).not.toBeInTheDocument()
+  })
+
   it('zeigt Projekt-Schritte nicht noch einmal in der Liste', () => {
     view()
     expect(screen.queryByText('Blatt 2')).not.toBeInTheDocument()

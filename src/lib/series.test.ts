@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import type { Item, StepSeries } from '../data/types'
-import { dueInstances, instanceId, instanceTitle, occurrences, previewNext } from './series'
+import {
+  dueInstances,
+  instanceId,
+  instanceTitle,
+  nextOccurrence,
+  nextSkipDate,
+  remainingOccurrences,
+  nthOccurrence,
+  occurrences,
+  pausedOccurrences,
+  previewNext,
+  recomputeOpenInstances,
+  upcomingOccurrences,
+} from './series'
 
 const series = (patch: Partial<StepSeries> = {}): StepSeries => ({
   id: 's1',
@@ -13,6 +26,7 @@ const series = (patch: Partial<StepSeries> = {}): StepSeries => ({
   dueWeekday: 5,
   durationMin: 180,
   state: 'aktiv',
+  skippedDates: [],
   lastNumber: 0,
   lastDate: null,
   ...patch,
@@ -193,7 +207,7 @@ describe('dueInstances', () => {
   it('Pausieren: keine Blätter, Fortsetzen ab gestern ohne Nummernlücke', () => {
     const s = series({ lastNumber: 1, lastDate: '2026-10-19', state: 'pausiert' })
     expect(run(s, [], '2026-11-02').due.instances).toEqual([])
-    const resumed = { ...s, state: 'aktiv' as const, lastDate: '2026-11-01' }
+    const resumed = { ...s, state: 'aktiv' as const, skippedDates: ['2026-10-26'] }
     const { due } = run(resumed, [], '2026-11-09')
     expect(due.instances.map((i) => [i.title, i.dueDate])).toEqual([
       ['Übungsblatt 2', '2026-11-06'],
@@ -233,5 +247,179 @@ describe('dueInstances', () => {
     expect(
       run(series({ startDate: '2026-11-02' }), [], '2026-11-02').due.instances[0].createdAt,
     ).toBe('2026-11-02T00:00:00+01:00')
+  })
+})
+
+describe('Ausfälle (skippedDates)', () => {
+  const skipped = series({ skippedDates: ['2026-11-02'] })
+
+  it('Stichtage überspringen ausgefallene Tage, die Nummerierung bleibt lückenlos', () => {
+    expect(occurrences(skipped, null, '2026-11-16')).toEqual([
+      '2026-10-19',
+      '2026-10-26',
+      '2026-11-09',
+      '2026-11-16',
+    ])
+    const { due } = run(skipped, [], '2026-11-16')
+    expect(due.instances.map((i) => [i.seriesNumber, i.id.slice(0, 8)])).toEqual([
+      [1, '20261019'],
+      [2, '20261026'],
+      [3, '20261109'],
+      [4, '20261116'],
+    ])
+  })
+
+  it('Ende per Anzahl rückt mit, Ende per Datum bleibt', () => {
+    const byCount = series({ endDate: null, count: 3, skippedDates: ['2026-10-26'] })
+    expect(occurrences(byCount, null, '2027-01-01')).toEqual([
+      '2026-10-19',
+      '2026-11-02',
+      '2026-11-09',
+    ])
+    const byDate = series({ endDate: '2026-11-09', skippedDates: ['2026-10-26'] })
+    expect(occurrences(byDate, null, '2027-01-01')).toEqual([
+      '2026-10-19',
+      '2026-11-02',
+      '2026-11-09',
+    ])
+    const byDateSkipLast = series({ endDate: '2026-11-09', skippedDates: ['2026-11-02'] })
+    expect(occurrences(byDateSkipLast, null, '2027-01-01')).toHaveLength(3)
+  })
+
+  it('n-ter Stichtag ohne Ausfälle; null jenseits des Endes', () => {
+    expect(nthOccurrence(skipped, 3)).toBe('2026-11-09')
+    expect(nthOccurrence(series({ endDate: null, count: 2 }), 3)).toBeNull()
+    expect(nthOccurrence(series({ endDate: '2026-10-26' }), 3)).toBeNull()
+  })
+
+  it('nächster Ausfall: erster Folgestichtag, der nicht schon ausfällt; every 2 ⇒ zwei Wochen', () => {
+    expect(nextSkipDate(series(), '2026-11-23')).toBe('2026-11-30')
+    expect(nextSkipDate(series({ skippedDates: ['2026-11-30'] }), '2026-11-23')).toBe('2026-12-07')
+    expect(nextSkipDate(series({ every: 2 }), '2026-11-23')).toBe('2026-12-07')
+  })
+
+  it('Vorschau und Auswahl „Ausfall eintragen“ zeigen die künftigen Stichtage ohne Ausfälle', () => {
+    const s = series({ lastNumber: 4, lastDate: '2026-11-09', skippedDates: ['2026-11-16'] })
+    expect(upcomingOccurrences(s, 3)).toEqual(['2026-11-23', '2026-11-30', '2026-12-07'])
+    expect(previewNext(s, 2).map((p) => [p.number, p.date])).toEqual([
+      [5, '2026-11-23'],
+      [6, '2026-11-30'],
+    ])
+  })
+
+  it('Pause-Stichtage von lastDate (exklusiv) bis gestern', () => {
+    const s = series({ lastNumber: 1, lastDate: '2026-10-19' })
+    expect(pausedOccurrences(s, '2026-11-02')).toEqual(['2026-10-26', '2026-11-02'])
+    expect(pausedOccurrences(s, '2026-10-25')).toEqual([])
+  })
+})
+
+describe('dueInstances – nummernbasiert', () => {
+  it('Nummer = Index des Stichtags, auch wenn lastDate vom Alt-Stand stammt', () => {
+    // Start nach Bearbeiten eine Woche später; Blatt 1 erledigt (Alt-Stichtag 19.10.), Blatt 2 gelöscht.
+    const s = series({ startDate: '2026-10-26', lastNumber: 2, lastDate: '2026-10-26' })
+    const done = {
+      ...item({ status: 'erledigt' }),
+      id: instanceId('p1', 's1', '2026-10-19'),
+      projectId: 'p1',
+      seriesId: 's1',
+      seriesNumber: 1,
+    }
+    const due = dueInstances(
+      project,
+      { ...s, lastNumber: 1, lastDate: '2026-10-19' },
+      [done],
+      '2026-11-03',
+    )
+    expect(due.instances.map((i) => [i.seriesNumber, i.id.slice(0, 8)])).toEqual([[2, '20261102']])
+    expect(due).toMatchObject({ lastNumber: 2, lastDate: '2026-11-02' })
+  })
+})
+
+describe('nextOccurrence / remainingOccurrences folgen der Nummer', () => {
+  it('lastDate weicht von nthOccurrence(lastNumber) ab: nächster Stichtag = Nr lastNumber+1', () => {
+    const s = series({ lastNumber: 2, lastDate: '2026-10-01' })
+    expect(nextOccurrence(s)).toEqual({ date: '2026-11-02', title: 'Übungsblatt 3' })
+  })
+
+  it('zählt Nummern > lastNumber mit Stichtag; ohne Ende 0', () => {
+    const s = series({ endDate: null, count: 5, lastNumber: 2, lastDate: '2026-10-01' })
+    expect(remainingOccurrences(s)).toBe(3)
+    expect(remainingOccurrences(series({ endDate: null, count: null }))).toBe(0)
+    expect(remainingOccurrences(series({ endDate: '2026-11-02', lastNumber: 1 }))).toBe(2)
+  })
+})
+
+describe('recomputeOpenInstances', () => {
+  const make = (s: StepSeries, n: number, date: string, patch: Partial<Item> = {}): Item => ({
+    ...item({}),
+    id: instanceId(project.id, s.id, date),
+    title: `Übungsblatt ${n}`,
+    projectId: project.id,
+    seriesId: s.id,
+    seriesNumber: n,
+    dueDate: '2026-01-01',
+    ...patch,
+  })
+
+  it('verschiebt offene Blätter auf den n-ten Stichtag und lässt erledigte unverändert', () => {
+    const old = series({ startDate: '2026-10-19' })
+    const items = [
+      make(old, 1, '2026-10-19', { status: 'erledigt' }),
+      make(old, 2, '2026-10-26', {
+        schedule: { start: 'x', durationMin: 1, calendarEventId: 'e' },
+      }),
+    ]
+    const next = series({ startDate: '2026-10-26', lastNumber: 2, lastDate: '2026-10-26' })
+    const plan = recomputeOpenInstances(project.id, next, items, '2026-11-20', { refreshDue: true })
+    expect(plan.deleted).toEqual([])
+    expect(plan.changes).toHaveLength(1)
+    const { from, to } = plan.changes[0]
+    expect(from.id).toBe(items[1].id)
+    expect(to).toMatchObject({
+      id: instanceId(project.id, 's1', '2026-11-02'),
+      dueDate: '2026-11-06',
+      title: 'Übungsblatt 2',
+      schedule: { calendarEventId: 'e' },
+      createdAt: items[1].createdAt,
+    })
+    expect(plan).toMatchObject({ lastNumber: 2, lastDate: '2026-11-02' })
+  })
+
+  it('löscht ein Blatt, dessen neuer Stichtag nach heute liegt', () => {
+    const old = series()
+    const items = [make(old, 1, '2026-10-19', { status: 'erledigt' }), make(old, 2, '2026-10-26')]
+    const next = series({ startDate: '2026-10-26' })
+    const plan = recomputeOpenInstances(project.id, next, items, '2026-10-27', { refreshDue: true })
+    expect(plan.deleted.map((i) => i.id)).toEqual([items[1].id])
+    expect(plan).toMatchObject({ lastNumber: 1, lastDate: '2026-10-26' })
+  })
+})
+
+describe('recomputeOpenInstances – Fortschritt', () => {
+  it('ohne Löschung bleibt der Fortschritt unverändert', () => {
+    const s = series({ lastNumber: 3, lastDate: '2026-11-02' })
+    const plan = recomputeOpenInstances(project.id, s, [], '2026-11-20', { refreshDue: true })
+    expect(plan).toMatchObject({ lastNumber: 3, lastDate: '2026-11-02' })
+  })
+
+  it('Wochentag geändert ohne Löschung: lastDate ist der neue Stichtag von Nr lastNumber', () => {
+    const s = series({ weekday: 3, lastNumber: 3, lastDate: '2026-11-02' })
+    const plan = recomputeOpenInstances(project.id, s, [], '2026-11-20', { refreshDue: true })
+    expect(plan).toMatchObject({ lastNumber: 3, lastDate: '2026-11-04' })
+  })
+
+  it('Löschung der Nr 1 setzt auf 0 / null', () => {
+    const old = series()
+    const one: Item = {
+      ...item({}),
+      id: instanceId(project.id, old.id, '2026-10-19'),
+      projectId: project.id,
+      seriesId: old.id,
+      seriesNumber: 1,
+    }
+    const next = series({ startDate: '2026-10-26', lastNumber: 1, lastDate: '2026-10-19' })
+    const plan = recomputeOpenInstances(project.id, next, [one], '2026-10-20', { refreshDue: true })
+    expect(plan).toMatchObject({ lastNumber: 0, lastDate: null })
   })
 })
