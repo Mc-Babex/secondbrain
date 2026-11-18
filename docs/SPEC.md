@@ -1,9 +1,10 @@
 # SecondBrain – Spezifikation
 
-Stand: 2026-11-16 · Status: **freigegeben** (Phase 5 „Cloud-Lauf per Knopf“ freigegeben 2026-10-19;
+Stand: 2026-11-18 · Status: **freigegeben** (Phase 5 „Cloud-Lauf per Knopf“ freigegeben 2026-10-19;
 Mail-Phase gestrichen und Phase 6 „iPhone“ freigegeben 2026-10-19; Phase 7 Teil A „Fehler und Feinschliff“
 und Teil B „Vollwertiger Kalender“ freigegeben 2026-10-20; Phase 8 „Testphase mit weiteren Nutzern“
-freigegeben 2026-10-28; Phase 9 „Aufgabenseite nach GTD“ freigegeben 2026-11-16)
+freigegeben 2026-10-28; Phase 9 „Aufgabenseite nach GTD“ freigegeben 2026-11-16, Korrekturen aus dem
+Vorschau-Test freigegeben 2026-11-18)
 
 Persönliche App zum schnellen Erfassen von Gedanken, Aufgaben und Terminen. Erfasstes landet
 im Eingangskorb; ein Claude-Lauf (außerhalb der App, in der Cloud, per Knopf gestartet, optional) sortiert es
@@ -361,8 +362,9 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
       "dueWeekday": 5,
       "durationMin": 180,
       "state": "aktiv",
+      "skippedDates": ["2026-11-02"],
       "lastNumber": 4,
-      "lastDate": "2026-11-09"
+      "lastDate": "2026-11-16"
     }
   ],
   "createdAt": "2026-11-16T09:00:00+01:00",
@@ -375,7 +377,10 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
   `"aktiv"` | `"erledigt"`. `id` im ID-Format aus 3.1. Unbekannte Felder bleiben erhalten. `series` fehlt ⇒ `[]`.
 - **Schritte** = Aufgaben mit `projectId` (§3.3), sortiert nach `projectOrder`. **Nächster Schritt des Projekts** =
   offener Schritt mit kleinstem `projectOrder` (gleich welcher angezeigte Status). Aktives Projekt ohne offenen
-  Schritt ⇒ Warnung „⚠ Nächsten Schritt festlegen“. Fortschritt x/y = erledigte / alle Schritte.
+  Schritt ⇒ Warnung „⚠ Nächsten Schritt festlegen“ – **außer** es hat eine aktive Serie mit einem weiteren Stichtag
+  (nach `lastDate`, vor dem Ende); dann steht statt der Warnung „Nächstes: <Titel mit Nr> ab <Wochentag Datum>“.
+  Fortschritt x/y = erledigte / alle Schritte; dazu zählen in y die **noch nicht angelegten Instanzen** aktiver
+  Serien mit festem Ende (`count` oder `endDate`). Serien ohne Ende zählen nur ihre angelegten Instanzen.
 - **Abschließen:** `status: "erledigt"`, `completedAt`; alle offenen Schritte werden wie ✓ Erledigt archiviert und
   bekommen `archivedWithProject: true`; Serien → `state: "beendet"`. **Wiederherstellen** (aus „Erledigt“): Projekt
   `aktiv`, `completedAt: null`, genau die Schritte mit `archivedWithProject: true` wieder offen (Feld entfällt); Serien
@@ -386,9 +391,11 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
 **Schritt-Serien** (`series[]`): `every` 1 = wöchentlich, 2 = alle 2 Wochen; `weekday`/`dueWeekday` 1 = Mo … 7 = So
 (`dueWeekday` optional, `null` = ohne Fälligkeit); Ende über `endDate` **oder** `count` (beide `null` = ohne Ende);
 `durationMin` optional; `state` `"aktiv"` | `"pausiert"` | `"beendet"`; `id` eindeutig im Projekt.
+`skippedDates` = ausgefallene Stichtage (`YYYY-MM-DD`, sortiert, ohne Doppelte; fehlt ⇒ `[]`).
 `lastNumber`/`lastDate` = Nummer und Stichtag der zuletzt angelegten Instanz (anfangs `0` / `null`).
 - **Stichtage:** `startDate` und alle `every` Wochen danach am `weekday` (erster Stichtag = erster `weekday` ab
-  `startDate`), bis einschließlich `endDate` bzw. bis Nummer `count`.
+  `startDate`), **ohne** die Tage aus `skippedDates`, bis einschließlich `endDate` bzw. bis Nummer `count`. Nummer
+  n gehört damit eindeutig zum n-ten Stichtag.
 - **Anlage nur durch die App**, nach jedem erfolgreichen Herunterladen (§4), nie offline. Der Claude-Lauf legt keine
   Instanzen an. Für jede aktive Serie eines aktiven Projekts:
   1. `lastNumber`/`lastDate` = jeweils Maximum aus Projektdatei **und** vorhandenen Einträgen mit dieser `seriesId`
@@ -403,9 +410,22 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
      es entsteht nie eine zweite Datei.
   4. Danach Projektdatei mit neuem `lastNumber`/`lastDate` speichern (Instanzen vor der Projektdatei hochladen).
 - Gelöschte oder erledigte Instanzen entstehen nicht neu (`lastDate`).
-- **Pausieren:** Stichtage während der Pause entfallen; die Nummerierung läuft ohne Lücke weiter. **Fortsetzen** setzt
-  `lastDate` auf gestern (falls größer). **Beenden:** `state: "beendet"`. **Bearbeiten** (Muster, Rhythmus, Start, Ende,
-  Fälligkeit, Dauer) wirkt ab der nächsten Instanz; vorhandene Instanzen bleiben.
+- **Ausfall** („Fällt aus – 1 Woche später“ bzw. „2 Wochen später“ bei `every` 2, an einer offenen Instanz): Der erste
+  Stichtag nach dem Stichtag der Instanz, der noch nicht in `skippedDates` steht, kommt in `skippedDates`; `dueDate`
+  der Instanz rückt um `every` Wochen nach hinten (ohne `dueDate`: nur der Ausfall). Alle folgenden Instanzen rücken
+  damit bei gleicher Nummerierung nach hinten. **Ausfall eintragen** an der Serie: einen künftigen Stichtag (nach
+  `lastDate`) in `skippedDates` aufnehmen. Ende per `count` rückt dadurch mit; Ende per `endDate` bleibt (ein Blatt
+  weniger). Ausfälle sind über die Serie wieder entfernbar, solange der Stichtag nach `lastDate` liegt.
+- **Pausieren:** Stichtage während der Pause entfallen; die Nummerierung läuft ohne Lücke weiter. **Fortsetzen**
+  trägt alle Stichtage von `lastDate` (exklusiv) bis gestern in `skippedDates` ein und setzt `lastDate` auf den
+  letzten davon (falls größer). **Beenden:** `state: "beendet"`. **Bearbeiten** von Muster, Ende oder Dauer wirkt ab
+  der nächsten Instanz. **Bearbeiten von Start, Wochentag, Rhythmus oder Fälligkeit** berechnet zusätzlich die
+  **offenen** Instanzen neu (erledigte bleiben unverändert): Instanz Nr n bekommt den n-ten Stichtag der neuen Regel
+  und `dueDate` neu; ändert sich ihr Stichtag, ersetzt eine Datei mit der ID des neuen Stichtags (Regel 3) die alte
+  (übrige Felder, Titel und `createdAt` bleiben; Google-Termin bleibt verknüpft). Liegt der neue Stichtag nach heute,
+  wird die offene Instanz stattdessen gelöscht (Google-Termin wie §6.6) und entsteht an ihrem Stichtag neu.
+  `lastNumber`/`lastDate` = Nummer und Stichtag der höchsten verbleibenden Instanz (keine ⇒ `0`/`null`);
+  `skippedDates` vor dem neuen Start entfallen.
 
 ### 3.13 Migration auf GTD (Phase 9)
 Reine, idempotente Lese-Funktion, gemeinsam für App und Lauf-Skripte (wie `src/lib/sortWork.ts`):
@@ -486,8 +506,12 @@ Reine, idempotente Lese-Funktion, gemeinsam für App und Lauf-Skripte (wie `src/
 - **Neuer Termin:** Knopf „+“ (Vorgabe: nächste volle Viertelstunde, heute bzw. am angezeigten Tag) und **langes
   Drücken** (~0,4 s, Touch und Maus) auf eine freie Zeit in der Zeitleiste (Vorgabe: diese Viertelstunde; kurze
   Vibration und sichtbare Markierung der Viertelstunde, wo unterstützt). Kurzes Antippen freier Zeit tut nichts, damit
-  nicht versehentlich Termine entstehen. Neue Termine sind reine Google-Termine ohne
-  SecondBrain-Eintrag; Standarddauer 60 Min.
+  nicht versehentlich Termine entstehen. **Halten und Ziehen (Phase 9):** Bleibt der Finger bzw. die Maustaste nach
+  dem langen Drücken unten, folgt die Markierung (Block in Standarddauer) beim Ziehen im 15-Min.-Raster, in der
+  Wochenansicht auch seitlich auf andere Tage; am oberen/unteren Rand scrollt die Zeitleiste mit (wie beim Ziehen von
+  Terminen). Erst das Loslassen öffnet den Termin-Dialog mit dieser Startzeit; die Seite wechselt dabei nicht.
+  Neue Termine sind reine Google-Termine ohne SecondBrain-Eintrag, außer „Auch als Aufgabe ablegen“ (§6.7) ist
+  gewählt; Standarddauer 60 Min.
 - **Termine ziehen (Phase 7, B4):** Langes Drücken (~0,4 s) auf einen bearbeitbaren, nicht ganztägigen Termin hebt
   ihn an (kurze Vibration, wo unterstützt); Ziehen senkrecht verschiebt im 15-Min.-Raster, in der Wochenansicht
   seitlich auf einen anderen Tag; ein Griff am unteren Rand ändert die Dauer (min. 15 Min.). Am oberen/unteren Rand
@@ -536,8 +560,8 @@ Von oben nach unten (Phase 9: Abschnitte 1–3 stehen über den Reitern, alles W
    - Die Sperre gilt auch nach einem Neuladen der App (sie ergibt sich aus `runs/started.json`).
 
 #### 6.3.1 Reiter (Phase 9)
-Unter dem Eingangskorb eine Reiter-Leiste: **Aktuell · Projekte · Warte auf · Irgendwann** (jeweils mit Anzahl, außer
-Aktuell). Wechsel **nur per Tippen** (und Tastatur: Tab/Enter, Pfeiltasten innerhalb der Leiste) – Wischen wechselt
+Unter dem Eingangskorb eine Reiter-Leiste: **Aktuell · Projekte · Warte auf · Irgendwann** (ab 600 px Breite jeweils
+mit Anzahl, außer Aktuell; darunter nur die Namen). Wechsel **nur per Tippen** (und Tastatur: Tab/Enter, Pfeiltasten innerhalb der Leiste) – Wischen wechselt
 weiter nur die Seite. Die App merkt sich den gewählten Reiter je Gerät (lokal, nicht im Repo). Passt ohne
 waagerechtes Scrollen ab 360 px Breite (Beschriftung ggf. gekürzt, z. B. „Irgendw.“, voller Name als `aria-label`).
 
@@ -567,8 +591,8 @@ waagerechtes Scrollen ab 360 px Breite (Beschriftung ggf. gekürzt, z. B. „Irg
    `order`, ohne Archiv und Einkauf). Von jedem Projekt erscheint **nur dessen nächster Schritt** (falls er den Status
    „Nächster Schritt“ hat), mit Projektname. Sortierung: überfällig (`dueDate` < heute) zuerst, dann nach `dueDate`
    aufsteigend, ohne `dueDate` zuletzt; bei Gleichstand Dauer aufsteigend (ohne Dauer zuletzt), dann `createdAt`.
-   **Zeitfilter** über der Liste: **≤ 15 · ≤ 30 · ≤ 60 Min. · alle** (Standard „alle“, Wahl je Gerät gemerkt); ein
-   Filter blendet Aufgaben mit größerer **oder fehlender** Dauer aus. Gilt nur für diesen Abschnitt.
+   **Zeitfilter** über der Liste: **≤ 15 Min. · alle** (Standard „alle“, Wahl je Gerät gemerkt; ein früher gemerkter
+   anderer Wert gilt als „alle“); „≤ 15 Min.“ blendet Aufgaben mit größerer **oder fehlender** Dauer aus. Gilt nur für diesen Abschnitt.
 4. **Eingeplant (n)** – eingeklappt; offene Aufgaben mit Termin nach heute, nach Beginn sortiert.
 
 Jede Aufgabe erscheint im Reiter „Aktuell“ nur einmal, Vorrang: Heute/Überfällig vor Fokus vor Eingeplant (Fokus-
@@ -596,7 +620,9 @@ wenn `schedule` gesetzt ist, und entsteht über das Uhr-Symbol), **★ Fokus** (
 (Datum, löschbar), **Dauer** (Auswahl 2, 5, 10, 15, 30, 45, 60, 90, 120, 180, 240 Min. oder leer), **Projekt** (aktive
 Projekte der gewählten Ablage oder „kein Projekt“; Wechsel der Ablage setzt ein nicht passendes Projekt auf „kein“;
 neuer Schritt wird hinten angehängt), bei „Warte auf“: **Person/Was**, **seit** (Vorgabe heute), **nachhaken am**
-(optional). Wechsel weg von „Warte auf“ setzt `waiting: null`.
+(optional). Wechsel weg von „Warte auf“ setzt `waiting: null`. Bei offenen Instanzen einer Schritt-Serie zusätzlich der
+Knopf **„Fällt aus – 1 Woche später“** (bei `every` 2: „2 Wochen später“), Wirkung §3.12; Meldung „Fällig jetzt <Tag>
+– folgende Blätter eine Woche später“ bzw. „… zwei Wochen später“.
 
 #### 6.3.3 Projektansicht (Phase 9)
 Eigene Ansicht mit Zurück-Pfeil (wie eine geöffnete Ablage), erreichbar aus dem Reiter „Projekte“ und von Seite 4:
@@ -607,13 +633,17 @@ Eigene Ansicht mit Zurück-Pfeil (wie eine geöffnete Ablage), erreichbar aus de
 - **Serien:** Liste mit Muster, Rhythmus, Fälligkeit, Ende, zuletzt angelegter Nummer, Zustand. „Serie hinzufügen“ /
   „Bearbeiten“ (Titelmuster mit `{Nr}`, wöchentlich/alle 2 Wochen, Wochentag, Startdatum, Ende per Datum oder Anzahl,
   optional „fällig am Wochentag“, optional Dauer, Vorschau der nächsten 3 Instanzen), **Pausieren/Fortsetzen**,
-  **Beenden** (mit Bestätigung).
+  **Beenden** (mit Bestätigung), **„Ausfall eintragen“** (Auswahl unter den nächsten 8 künftigen Stichtagen) und die
+  eingetragenen künftigen Ausfälle mit „Entfernen“. Ändert das Bearbeiten Start, Wochentag, Rhythmus oder Fälligkeit
+  und gibt es offene Instanzen, weist der Dialog vor dem Speichern darauf hin („Offene Blätter werden neu berechnet“).
 - **„Projekt abschließen“** (Bestätigung, §3.12). Ohne Schritte zusätzlich „Projekt löschen“.
-- Ohne offenen Schritt: Warnung „⚠ Nächsten Schritt festlegen“ mit Eingabefeld.
+- Ohne offenen Schritt: Warnung „⚠ Nächsten Schritt festlegen“ mit Eingabefeld – bzw. bei aktiver Serie mit weiterem
+  Stichtag „Nächstes: <Titel> ab <Tag>“ (§3.12) und das Eingabefeld ohne Warnung.
 
 **Abhaken eines Projekt-Schritts** (überall): Gibt es danach einen offenen Schritt ⇒ Meldung „Weiter mit: <Titel>“
-(5 s). Sonst kleiner Dialog **„Was ist der nächste Schritt?“** mit Eingabefeld und den Knöpfen „Hinzufügen“, „Später“
-(Projekt zeigt die Warnung) und „Projekt abschließen“.
+(5 s). Sonst, bei aktiver Serie mit weiterem Stichtag ⇒ Meldung „Nächstes: <Titel> ab <Tag>“ (5 s), kein Dialog. Sonst
+kleiner Dialog **„Was ist der nächste Schritt?“** mit Eingabefeld und den Knöpfen „Hinzufügen“, „Später“ (Projekt
+zeigt die Warnung) und „Projekt abschließen“.
 - Termin-Titel im Kalender = Aufgabentitel; Beschreibung enthält den Hinweis „SecondBrain" und die Eintrags-ID.
 - Der Vorschlag im Uhr-Dialog (nächste volle Viertelstunde im Planungsfenster) überspringt die Pause; gewählt
   werden darf jede Zeit, auch in der Pause.
@@ -741,6 +771,13 @@ Was mit dem Google-Termin (`schedule.calendarEventId`) eines Eintrags passiert:
 - **Gäste:** Hat der Termin Gäste und bist du Organisator, fragt die App vor dem Speichern oder Löschen „Gäste
   benachrichtigen?“ – **Nein** (Vorauswahl, `sendUpdates=none`) / **Ja** (`sendUpdates=all`). Ohne Gäste: `none`.
 - **Löschen** mit Bestätigung (bei verknüpften Terminen: §6.6).
+- **Auch als Aufgabe ablegen (Phase 9):** Nur beim **Neu-Anlegen** ein Schalter (Standard aus); an ⇒ Auswahl Ablage
+  (ohne Einkauf/Archiv, Vorgabe erste Ablage laut `order`) und optional Projekt (aktive Projekte dieser Ablage).
+  Gesperrt mit Hinweis bei ganztägigen Terminen und bei Wiederholung. Beim Speichern entsteht zuerst der
+  Google-Termin, danach ein Eintrag `type: "aufgabe"` mit Titel = Termintitel, `notes` = Beschreibung,
+  `gtd: "naechster-schritt"`, `schedule` (Beginn, Dauer) und `calendarEventId` (lokal + Outbox, §4); mit Projekt
+  hinten angehängt (`projectOrder`). Er erscheint damit als „Termin“ auf der Aufgabenseite. Scheitert der
+  Google-Termin, entsteht kein Eintrag.
 - Ohne Verbindung/offline: Dialog zeigt den Termin, Speichern/Löschen mit verständlicher Meldung; nichts geht verloren,
   solange der Dialog offen ist. Die App arbeitet für Termine direkt mit Google (keine Outbox).
 
