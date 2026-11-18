@@ -56,3 +56,4 @@ Freigegeben 2026-11-16 (bei Format 1 bleiben; Aufgabe mit Datum ohne Planungswor
 | 102 Projekte mit Serie: keine Warnung, Fortschritt | ✅ |
 | 103 Kalender: neuen Termin beim Halten verschieben | ✅ |
 | 104 Neuer Termin „Auch als Aufgabe ablegen“ | ✅ |
+| 105 Abgeschlossene Serien ausblenden, Serien löschen | ✅ |

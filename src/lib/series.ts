@@ -75,6 +75,13 @@ export function nthOccurrence(series: StepSeries, n: number): string | null {
   return dates.length === n ? dates[n - 1] : null
 }
 
+/** Abgeschlossen: beendet oder kein weiterer Stichtag (`count`/`endDate` erreicht); pausiert gilt nicht (SPEC §3.12). */
+export function isSeriesFinished(series: StepSeries): boolean {
+  if (series.state === 'beendet') return true
+  if (series.state === 'pausiert') return false
+  return nthOccurrence(series, series.lastNumber + 1) === null
+}
+
 /** Die nächsten `n` Stichtage nach `lastDate` – Auswahl für „Ausfall eintragen“ (SPEC §6.3.3). */
 export function upcomingOccurrences(series: StepSeries, n = 8): string[] {
   return nextDates(series, series.lastDate, null, n)

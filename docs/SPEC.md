@@ -427,6 +427,13 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
   Wurden dabei künftige Instanzen gelöscht, wird `lastNumber` auf (kleinste gelöschte Nummer − 1) gesetzt und
   `lastDate` auf deren Stichtag nach der neuen Regel (Nr 0 ⇒ `null`); sonst bleibt `lastNumber` (so entstehen von
   Hand gelöschte Instanzen nicht neu) und `lastDate` wird der Stichtag von Nr `lastNumber` nach der neuen Regel. `skippedDates` vor dem neuen Start entfallen.
+- **Abgeschlossen** ist eine Serie mit `state: "beendet"` oder ohne weiteren Stichtag (k-ter Stichtag für
+  k = `lastNumber + 1` existiert nicht, weil `count` bzw. `endDate` erreicht ist). Pausierte Serien gelten nicht als
+  abgeschlossen.
+- **Serie löschen** (jede Serie, mit Bestätigung): Das Serienobjekt wird aus `series[]` entfernt. Angelegte Instanzen
+  (offen und erledigt) bleiben als normale Schritte unverändert; ihr `seriesId`/`seriesNumber` bleibt nur als
+  Herkunftsangabe (Aktionen wie „Fällt aus“ entfallen für sie). Es entstehen keine weiteren Instanzen; der Fortschritt
+  zählt nur noch vorhandene Schritte.
 
 ### 3.13 Migration auf GTD (Phase 9)
 Reine, idempotente Lese-Funktion, gemeinsam für App und Lauf-Skripte (wie `src/lib/sortWork.ts`):
@@ -637,6 +644,10 @@ Eigene Ansicht mit Zurück-Pfeil (wie eine geöffnete Ablage), erreichbar aus de
   **Beenden** (mit Bestätigung), **„Ausfall eintragen“** (Auswahl unter den nächsten 8 künftigen Stichtagen) und die
   eingetragenen künftigen Ausfälle mit „Entfernen“. Ändert das Bearbeiten Start, Wochentag, Rhythmus oder Fälligkeit
   und gibt es offene Instanzen, weist der Dialog vor dem Speichern darauf hin („Offene Blätter werden neu berechnet“).
+  Die Liste zeigt nur nicht abgeschlossene Serien (§3.12); darunter eingeklappt **„Abgeschlossene Serien (n)“** (nur
+  wenn n > 0) mit Muster, Zeitraum (Start – letzter Stichtag), Anzahl angelegter Blätter und **„Löschen“**. „Löschen“
+  gibt es auch bei laufenden Serien. Bestätigung: „Serie ‚<Muster>‘ löschen? Die vorhandenen Blätter bleiben als
+  Schritte erhalten, neue entstehen nicht mehr.“
 - **„Projekt abschließen“** (Bestätigung, §3.12). Ohne Schritte zusätzlich „Projekt löschen“.
 - Ohne offenen Schritt: Warnung „⚠ Nächsten Schritt festlegen“ mit Eingabefeld – bzw. bei aktiver Serie mit weiterem
   Stichtag „Nächstes: <Titel> ab <Tag>“ (§3.12) und das Eingabefeld ohne Warnung.

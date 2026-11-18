@@ -4,6 +4,7 @@ import {
   dueInstances,
   instanceId,
   instanceTitle,
+  isSeriesFinished,
   nextOccurrence,
   nextSkipDate,
   remainingOccurrences,
@@ -421,5 +422,20 @@ describe('recomputeOpenInstances – Fortschritt', () => {
     const next = series({ startDate: '2026-10-26', lastNumber: 1, lastDate: '2026-10-19' })
     const plan = recomputeOpenInstances(project.id, next, [one], '2026-10-20', { refreshDue: true })
     expect(plan).toMatchObject({ lastNumber: 0, lastDate: null })
+  })
+})
+
+describe('isSeriesFinished', () => {
+  it('beendet, count erreicht und endDate erreicht gelten als abgeschlossen', () => {
+    expect(isSeriesFinished(series({ state: 'beendet' }))).toBe(true)
+    expect(isSeriesFinished(series({ endDate: null, count: 3, lastNumber: 3 }))).toBe(true)
+    expect(isSeriesFinished(series({ endDate: '2026-11-02', lastNumber: 3 }))).toBe(true)
+  })
+
+  it('aktiv mit weiterem Stichtag und pausiert gelten nicht als abgeschlossen', () => {
+    expect(isSeriesFinished(series({ lastNumber: 1 }))).toBe(false)
+    expect(isSeriesFinished(series({ endDate: null, count: 3, lastNumber: 2 }))).toBe(false)
+    const paused = series({ state: 'pausiert', endDate: null, count: 3, lastNumber: 3 })
+    expect(isSeriesFinished(paused)).toBe(false)
   })
 })

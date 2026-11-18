@@ -1160,6 +1160,16 @@ export function endSeries(projectId: string, seriesId: string): Promise<Project>
   return changeSeries(projectId, seriesId, (s) => ({ ...s, state: 'beendet' }))
 }
 
+/** Löscht das Serienobjekt; angelegte Instanzen bleiben unverändert (SPEC §3.12). */
+export function deleteSeries(projectId: string, seriesId: string): Promise<Project> {
+  return modifyProjectSeries(projectId, (list) => {
+    if (!list.some((s) => isStepSeries(s) && s.id === seriesId)) {
+      throw new Error(`Serie ${seriesId} nicht gefunden`)
+    }
+    return list.filter((s) => !(isStepSeries(s) && s.id === seriesId))
+  })
+}
+
 /** Löscht ein Projekt, aber nur ohne Schritte (auch ohne erledigte); sonst erst abschließen. */
 export async function deleteProject(id: string): Promise<void> {
   if ((await listItems()).some((i) => i.projectId === id)) {

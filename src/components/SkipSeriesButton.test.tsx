@@ -7,6 +7,7 @@ import {
   completeItem,
   createItem,
   createProject,
+  deleteSeries,
   listItems,
   listProjects,
 } from '../data/repository'
@@ -70,6 +71,14 @@ describe('Knopf „Fällt aus“ im ItemEditor', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       'Fällig jetzt Fr 20.11. – folgende Blätter zwei Wochen später',
     )
+  })
+
+  it('fehlt, wenn die Serie gelöscht wurde', async () => {
+    const { project, series, items } = await createSeriesItems()
+    await deleteSeries(project.id, series.id)
+    render(<ItemEditor item={items[0]} categories={categories} onClose={vi.fn()} />)
+    await screen.findByRole('dialog')
+    expect(screen.queryByRole('button', { name: /Fällt aus/ })).not.toBeInTheDocument()
   })
 
   it('fehlt bei normalen Aufgaben und erledigten Instanzen', async () => {

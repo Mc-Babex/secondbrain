@@ -1,7 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { resetDb } from '../../../data/localStore'
-import { createProject, listProjects } from '../../../data/repository'
+import { getOutbox, resetDb, updateFileLocal } from '../../../data/localStore'
+import {
+  addSeries,
+  createItem,
+  createProject,
+  listItems,
+  listProjects,
+} from '../../../data/repository'
 import type { StepSeries } from '../../../data/types'
 import { validSeries } from '../../../data/types'
 import { ProjectView } from './ProjectView'
@@ -23,6 +29,18 @@ async function openView() {
   await screen.findByRole('heading', { name: 'Analysis 1' })
   return project
 }
+
+const SHORT = {
+  titlePattern: 'Blatt {Nr}',
+  every: 1,
+  weekday: 1,
+  startDate: '2026-10-19',
+  endDate: null,
+  count: 2,
+  dueWeekday: null,
+  durationMin: null,
+}
+const SHEET = { type: 'aufgabe', title: 'Blatt 1', categoryId: 'privat' } as const
 
 const savedSeries = async (): Promise<StepSeries[]> => validSeries((await listProjects())[0])
 
@@ -168,8 +186,53 @@ describe('Serien-Dialog', () => {
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Ja, beenden' }),
     )
     await waitFor(async () => expect((await savedSeries())[0].state).toBe('beendet'))
-    expect(await screen.findByText('Beendet')).toBeInTheDocument()
+    expect(await screen.findByText('Abgeschlossene Serien (1)')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /pausieren$/ })).not.toBeInTheDocument()
+  })
+
+  it('Löschen mit Bestätigung entfernt die Serie, Abbrechen ändert nichts; Blätter bleiben', async () => {
+    const user = userEvent.setup()
+    const project = await openView()
+    const series = await addSeries(project.id, SHORT)
+    await createItem({ ...SHEET, projectId: project.id, seriesId: series.id })
+
+    await user.click(await screen.findByRole('button', { name: /löschen$/ }))
+    const confirm = await screen.findByRole('dialog', { name: 'Serie löschen?' })
+    expect(confirm).toHaveTextContent(
+      'Serie ‚Blatt {Nr}‘ löschen? Die vorhandenen Blätter bleiben als Schritte erhalten, neue entstehen nicht mehr.',
+    )
+    await user.click(within(confirm).getByRole('button', { name: 'Abbrechen' }))
+    expect(await savedSeries()).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: /löschen$/ }))
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Ja, löschen' }),
+    )
+    await waitFor(async () => expect(await savedSeries()).toHaveLength(0))
+    expect((await getOutbox()).map((o) => o.path)).toContain(`projects/${project.id}.json`)
+    const items = await listItems()
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ title: 'Blatt 1', seriesId: series.id })
+  })
+
+  it('zeigt abgeschlossene Serien nur eingeklappt darunter mit Blätterzahl', async () => {
+    const user = userEvent.setup()
+    const project = await openView()
+    const series = await addSeries(project.id, SHORT)
+    const path = `projects/${project.id}.json`
+    await updateFileLocal(path, (current) => {
+      const data = current as { series: StepSeries[] }
+      return {
+        ...data,
+        series: data.series.map((s) => ({ ...s, lastNumber: 2, lastDate: '2026-10-26' })),
+      }
+    })
+    await createItem({ ...SHEET, projectId: project.id, seriesId: series.id })
+    const summary = await screen.findByText('Abgeschlossene Serien (1)')
+    expect(summary.closest('details')).not.toHaveAttribute('open')
+    await user.click(summary)
+    expect(summary.closest('details')).toHaveAttribute('open')
+    expect(screen.getByText(/Mo 19\.10\. – Mo 26\.10\. · 1 Blatt$/)).toBeInTheDocument()
   })
 
   it('bearbeitet eine Serie; Nummerierung und Instanzen bleiben', async () => {

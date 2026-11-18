@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { Dialog } from '../../../components/Dialog'
 import form from '../../../components/Form.module.css'
-import { endSeries, pauseSeries, resumeSeries } from '../../../data/repository'
+import { useItems } from '../../../data/hooks'
+import { deleteSeries, endSeries, pauseSeries, resumeSeries } from '../../../data/repository'
 import { validSeries } from '../../../data/types'
 import type { Project, SeriesState, StepSeries } from '../../../data/types'
+import { isSeriesFinished } from '../../../lib/series'
 import { formatFullDay, formatDay, weekdayShort } from './projectDates'
 import { SeriesDialog } from './SeriesDialog'
 import { SeriesSkips } from './SeriesSkips'
@@ -33,18 +35,41 @@ function last(series: StepSeries): string {
     : `zuletzt Nr. ${series.lastNumber} (${formatDay(series.lastDate)})`
 }
 
+function sheetCount(count: number): string {
+  return count === 1 ? '1 Blatt' : `${count} Blätter`
+}
+
+function period(series: StepSeries): string {
+  const start = formatDay(series.startDate)
+  return series.lastDate === null ? `ab ${start}` : `${start} – ${formatDay(series.lastDate)}`
+}
+
 /** Serien eines Projekts: Anzeige, Bearbeiten, Pausieren/Fortsetzen, Beenden (SPEC §6.3.3). */
 export function SeriesList({ project }: { project: Project }) {
   const [dialog, setDialog] = useState<{ series?: StepSeries } | null>(null)
   const [endingSeries, setEnding] = useState<StepSeries | null>(null)
+  const [deleting, setDeleting] = useState<StepSeries | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const items = useItems()
 
   const run = (action: Promise<unknown>): void => {
     setError(null)
     action.catch((e: unknown) => setError(userMessage(e)))
   }
 
-  const list = validSeries(project)
+  const all = validSeries(project)
+  const list = all.filter((s) => !isSeriesFinished(s))
+  const finished = all.filter(isSeriesFinished)
+  const deleteButton = (series: StepSeries) => (
+    <button
+      type="button"
+      className={styles.button}
+      aria-label={`Serie ${series.titlePattern} löschen`}
+      onClick={() => setDeleting(series)}
+    >
+      Löschen
+    </button>
+  )
   return (
     <section aria-labelledby="project-series" className={styles.section}>
       <h2 id="project-series" className={styles.heading}>
@@ -66,44 +91,68 @@ export function SeriesList({ project }: { project: Project }) {
                   {STATE_LABELS[series.state]}
                 </span>
               </div>
-              {series.state !== 'beendet' && (
-                <div className={styles.buttons}>
-                  <button
-                    type="button"
-                    className={styles.button}
-                    aria-label={`Serie ${series.titlePattern} bearbeiten`}
-                    onClick={() => setDialog({ series })}
-                  >
-                    Bearbeiten
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.button}
-                    aria-label={`Serie ${series.titlePattern} ${series.state === 'aktiv' ? 'pausieren' : 'fortsetzen'}`}
-                    onClick={() =>
-                      run(
-                        series.state === 'aktiv'
-                          ? pauseSeries(project.id, series.id)
-                          : resumeSeries(project.id, series.id),
-                      )
-                    }
-                  >
-                    {series.state === 'aktiv' ? 'Pausieren' : 'Fortsetzen'}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.button}
-                    aria-label={`Serie ${series.titlePattern} beenden`}
-                    onClick={() => setEnding(series)}
-                  >
-                    Beenden
-                  </button>
-                </div>
-              )}
+              <div className={styles.buttons}>
+                {series.state !== 'beendet' && (
+                  <>
+                    <button
+                      type="button"
+                      className={styles.button}
+                      aria-label={`Serie ${series.titlePattern} bearbeiten`}
+                      onClick={() => setDialog({ series })}
+                    >
+                      Bearbeiten
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.button}
+                      aria-label={`Serie ${series.titlePattern} ${series.state === 'aktiv' ? 'pausieren' : 'fortsetzen'}`}
+                      onClick={() =>
+                        run(
+                          series.state === 'aktiv'
+                            ? pauseSeries(project.id, series.id)
+                            : resumeSeries(project.id, series.id),
+                        )
+                      }
+                    >
+                      {series.state === 'aktiv' ? 'Pausieren' : 'Fortsetzen'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.button}
+                      aria-label={`Serie ${series.titlePattern} beenden`}
+                      onClick={() => setEnding(series)}
+                    >
+                      Beenden
+                    </button>
+                  </>
+                )}
+                {deleteButton(series)}
+              </div>
               <SeriesSkips projectId={project.id} series={series} run={run} />
             </li>
           ))}
         </ul>
+      )}
+      {finished.length > 0 && (
+        <details className={styles.finished}>
+          <summary className={styles.finishedSummary}>
+            Abgeschlossene Serien ({finished.length})
+          </summary>
+          <ul className={styles.list}>
+            {finished.map((series) => (
+              <li key={series.id} className={styles.item}>
+                <div className={styles.main}>
+                  <span className={styles.pattern}>{series.titlePattern}</span>
+                  <span className={styles.meta}>
+                    {rhythm(series)} · {period(series)} ·{' '}
+                    {sheetCount(items.filter((i) => i.seriesId === series.id).length)}
+                  </span>
+                </div>
+                <div className={styles.buttons}>{deleteButton(series)}</div>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       {error && (
         <p className={styles.error} role="alert">
@@ -135,6 +184,29 @@ export function SeriesList({ project }: { project: Project }) {
               }}
             >
               Ja, beenden
+            </button>
+          </div>
+        </Dialog>
+      )}
+      {deleting && (
+        <Dialog title="Serie löschen?" onClose={() => setDeleting(null)}>
+          <p className={styles.confirmText}>
+            Serie ‚{deleting.titlePattern}‘ löschen? Die vorhandenen Blätter bleiben als Schritte
+            erhalten, neue entstehen nicht mehr.
+          </p>
+          <div className={form.actions}>
+            <button type="button" className={form.button} onClick={() => setDeleting(null)}>
+              Abbrechen
+            </button>
+            <button
+              type="button"
+              className={`${form.button} ${form.danger}`}
+              onClick={() => {
+                run(deleteSeries(project.id, deleting.id))
+                setDeleting(null)
+              }}
+            >
+              Ja, löschen
             </button>
           </div>
         </Dialog>

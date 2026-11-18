@@ -7,6 +7,7 @@ import {
   completeItem,
   createProject,
   deleteItem,
+  deleteSeries,
   endSeries,
   listItems,
   listProjects,
@@ -208,6 +209,22 @@ describe('Anlage von Serien-Instanzen im Sync', () => {
     expect(await listItems()).toHaveLength(2)
     const stored = (await listProjects())[0]
     expect(validSeries(stored)[0]).toMatchObject({ state: 'beendet', lastNumber: 2 })
+  })
+
+  it('Serie löschen: Blätter bleiben, übrige Serien auch, keine neuen Instanzen', async () => {
+    const project = await newProject()
+    const series = await addSeries(project.id, FIELDS)
+    const other = await addSeries(project.id, { ...FIELDS, titlePattern: 'Anderes {Nr}' })
+    at('2026-10-19T08:00:00+02:00')
+    await syncNow()
+    await deleteSeries(project.id, series.id)
+    expect(validSeries((await listProjects())[0]).map((s) => s.id)).toEqual([other.id])
+    at('2026-10-26T08:00:00+01:00')
+    await syncNow()
+    const titles = (await listItems()).map((i) => i.title)
+    expect(titles).toContain('Übungsblatt 1')
+    expect(titles).not.toContain('Übungsblatt 2')
+    await expect(deleteSeries(project.id, series.id)).rejects.toThrow()
   })
 
   it('unbekannte Serien-Objekte bleiben beim Schreiben unverändert', async () => {
