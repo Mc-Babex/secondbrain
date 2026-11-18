@@ -1,5 +1,6 @@
 import {
   skipSeriesInstance,
+  unskipSeriesInstance,
   updateSeriesRecomputing,
   type SeriesFields,
   type SkipResult,
@@ -53,5 +54,13 @@ export async function skipInstanceWithEvents(
   itemId: string,
 ): Promise<{ result: SkipResult; note: string | null }> {
   const result = await skipSeriesInstance(itemId)
+  return { result, note: await removeFutureEvents(result.removed) }
+}
+
+/** „Ausfall zurücknehmen“ an einer Instanz; nachrückende, nun gelöschte künftige Blätter verlieren ihre Google-Termine. */
+export async function unskipInstanceWithEvents(
+  itemId: string,
+): Promise<{ result: SkipResult; note: string | null }> {
+  const result = await unskipSeriesInstance(itemId)
   return { result, note: await removeFutureEvents(result.removed) }
 }

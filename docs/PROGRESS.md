@@ -50,10 +50,11 @@ Freigegeben 2026-11-16 (bei Format 1 bleiben; Aufgabe mit Datum ohne Planungswor
 | 96 Seite 4: Projekte und Status-Kennzeichen | ✅ |
 | 97 Claude-Lauf: Kalender-Regel, Status, Projekte | ✅ |
 | 98 Testsätze und Trockenlauf | ✅ (Trockenlauf 29/29 · 14/14 · 13/13) |
-| 99 Abnahme und Veröffentlichen | 🟨 (Vorschau-Test durch den Nutzer; Korrekturen 100–104 aus dem ersten Test) |
+| 99 Abnahme und Veröffentlichen | 🟨 (Vorschau-Test durch den Nutzer; Korrekturen 100–106 aus dem Vorschau-Test) |
 | 100 Reiter ohne Anzahl am Handy, Zeitfilter ≤ 15 / alle | ✅ |
 | 101 Serien: Ausfall, Neuberechnung offener Blätter | ✅ (2 Korrekturrunden) |
 | 102 Projekte mit Serie: keine Warnung, Fortschritt | ✅ |
 | 103 Kalender: neuen Termin beim Halten verschieben | ✅ |
 | 104 Neuer Termin „Auch als Aufgabe ablegen“ | ✅ |
 | 105 Abgeschlossene Serien ausblenden, Serien löschen | ✅ |
+| 106 „Fällt aus“ im Blatt korrigieren, Ausfall zurücknehmen | ✅ |

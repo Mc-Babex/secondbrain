@@ -13,6 +13,7 @@ import {
   removeSkippedDate,
   resumeSeries,
   skipSeriesInstance,
+  unskipSeriesInstance,
   updateItem,
   updateSeries,
 } from './repository'
@@ -129,6 +130,88 @@ describe('Ausfall an einer Serien-Instanz', () => {
     await updateItem(five?.id ?? '', { extra: 1 } as never)
     await skipSeriesInstance(five?.id ?? '')
     expect((await listItems()).find((i) => i.seriesNumber === 5)).toMatchObject({ extra: 1 })
+  })
+})
+
+describe('Ausfall zurücknehmen', () => {
+  it('entfernt bei zwei Ausfällen nur den letzten; dueDate und Folgeblätter wie vorher', async () => {
+    const { project, series } = await setup()
+    at('2026-11-30T08:00:00+01:00')
+    await createDueSeriesInstances()
+    const five = (await listItems()).find((i) => i.seriesNumber === 5)
+    await skipSeriesInstance(five?.id ?? '')
+    await skipSeriesInstance(five?.id ?? '')
+    expect((await storedSeries()).skippedDates).toEqual(['2026-11-30', '2026-12-07'])
+    expect((await listItems()).find((i) => i.seriesNumber === 5)?.dueDate).toBe('2026-12-11')
+
+    const result = await unskipSeriesInstance(five?.id ?? '')
+    expect(result).toMatchObject({ weeks: 1, item: { dueDate: '2026-12-04' } })
+    expect((await storedSeries()).skippedDates).toEqual(['2026-11-30'])
+    expect((await listItems()).find((i) => i.seriesNumber === 5)?.dueDate).toBe('2026-12-04')
+    expect((await getOutbox()).map((e) => e.path)).toContain(`projects/${project.id}.json`)
+
+    await unskipSeriesInstance(five?.id ?? '')
+    expect((await storedSeries()).skippedDates).toEqual([])
+    expect((await listItems()).find((i) => i.seriesNumber === 5)?.dueDate).toBe('2026-11-27')
+    await createDueSeriesInstances()
+    expect((await listItems()).find((i) => i.seriesNumber === 6)?.id).toBe(
+      instanceId(project.id, series.id, '2026-11-30'),
+    )
+  })
+
+  it('Fortschritt ist nach Rückgängig wie vor dem Ausfall', async () => {
+    await setup()
+    at('2026-11-30T08:00:00+01:00')
+    await createDueSeriesInstances()
+    const five = (await listItems()).find((i) => i.seriesNumber === 5)
+    const before = await storedSeries()
+    const sixBefore = (await listItems()).find((i) => i.seriesNumber === 6)
+    await skipSeriesInstance(five?.id ?? '')
+    expect(await storedSeries()).toMatchObject({ lastNumber: 5, lastDate: '2026-11-23' })
+    await unskipSeriesInstance(five?.id ?? '')
+    expect(await storedSeries()).toMatchObject({ skippedDates: [], lastNumber: 5 })
+    // Das beim Ausfall gelöschte künftige Blatt 6 entsteht beim nächsten Abgleich mit derselben ID neu.
+    await createDueSeriesInstances()
+    expect(await storedSeries()).toMatchObject({
+      lastNumber: before.lastNumber,
+      lastDate: before.lastDate,
+    })
+    expect((await listItems()).find((i) => i.seriesNumber === 6)?.id).toBe(sixBefore?.id)
+  })
+
+  it('erledigte spätere Blätter bleiben unverändert', async () => {
+    await setup()
+    at('2026-11-30T08:00:00+01:00')
+    await createDueSeriesInstances()
+    const items = await listItems()
+    const four = items.find((i) => i.seriesNumber === 4)
+    const six = items.find((i) => i.seriesNumber === 6)
+    await completeItem(six?.id ?? '')
+    await skipSeriesInstance(four?.id ?? '')
+    await unskipSeriesInstance(four?.id ?? '')
+    expect((await listItems()).find((i) => i.seriesNumber === 6)).toMatchObject({
+      id: six?.id,
+      status: 'erledigt',
+    })
+  })
+
+  it('Fehler bei Blatt ohne Ausfall und bei erledigtem Blatt', async () => {
+    await setup()
+    await createDueSeriesInstances()
+    const first = (await listItems())[0]
+    await expect(unskipSeriesInstance(first.id)).rejects.toThrow('keinen Ausfall')
+    await completeItem(first.id)
+    await expect(unskipSeriesInstance(first.id)).rejects.toThrow()
+  })
+
+  it('Serie ohne dueWeekday: nur der Ausfall wird entfernt', async () => {
+    await setup({ dueWeekday: null as never })
+    await createDueSeriesInstances()
+    const five = (await listItems()).find((i) => i.seriesNumber === 5)
+    await skipSeriesInstance(five?.id ?? '')
+    const result = await unskipSeriesInstance(five?.id ?? '')
+    expect(result.item.dueDate ?? null).toBeNull()
+    expect((await storedSeries()).skippedDates).toEqual([])
   })
 })
 

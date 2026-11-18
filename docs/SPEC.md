@@ -416,6 +416,11 @@ Secrets aus 3.7 fehlen; nichts gestartet, keine Sperre geschrieben).
   damit bei gleicher Nummerierung nach hinten. **Ausfall eintragen** an der Serie: einen künftigen Stichtag (nach
   `lastDate`) in `skippedDates` aufnehmen. Ende per `count` rückt dadurch mit; Ende per `endDate` bleibt (ein Blatt
   weniger). Ausfälle sind über die Serie wieder entfernbar, solange der Stichtag nach `lastDate` liegt.
+  **Ausfälle eines Blatts** (Instanz Nr n) sind die Tage aus `skippedDates` zwischen ihrem Stichtag und dem Stichtag
+  von Nr n+1 (beide exklusiv). **Ausfall zurücknehmen** an einer offenen Instanz mit mindestens einem solchen Ausfall:
+  der letzte davon wird aus `skippedDates` entfernt, `dueDate` der Instanz rückt um `every` Wochen zurück (ohne
+  `dueDate`: nur das Entfernen); die folgenden offenen Instanzen werden neu berechnet wie beim Bearbeiten (erledigte
+  bleiben unverändert).
 - **Pausieren:** Stichtage während der Pause entfallen; die Nummerierung läuft ohne Lücke weiter. **Fortsetzen**
   trägt alle Stichtage von `lastDate` (exklusiv) bis gestern in `skippedDates` ein und setzt `lastDate` auf den
   letzten davon (falls größer). **Beenden:** `state: "beendet"`. **Bearbeiten** von Muster, Ende oder Dauer wirkt ab
@@ -630,7 +635,11 @@ Projekte der gewählten Ablage oder „kein Projekt“; Wechsel der Ablage setzt
 neuer Schritt wird hinten angehängt), bei „Warte auf“: **Person/Was**, **seit** (Vorgabe heute), **nachhaken am**
 (optional). Wechsel weg von „Warte auf“ setzt `waiting: null`. Bei offenen Instanzen einer Schritt-Serie zusätzlich der
 Knopf **„Fällt aus – 1 Woche später“** (bei `every` 2: „2 Wochen später“), Wirkung §3.12; Meldung „Fällig jetzt <Tag>
-– folgende Blätter eine Woche später“ bzw. „… zwei Wochen später“.
+– folgende Blätter eine Woche später“ bzw. „… zwei Wochen später“ mit Knopf **„Rückgängig“** (nimmt genau diesen
+Ausfall zurück). Das Feld „fällig bis“ im offenen Dialog zeigt danach das neue Datum; Speichern behält es. Hat die
+Instanz Ausfälle (§3.12), zusätzlich **„Ausfall zurücknehmen – fällig wieder <Tag>“** (ohne `dueDate`: „Ausfall
+zurücknehmen“), Meldung „Ausfall zurückgenommen – folgende Blätter wieder eine Woche früher“ bzw. „… zwei Wochen
+früher“.
 
 #### 6.3.3 Projektansicht (Phase 9)
 Eigene Ansicht mit Zurück-Pfeil (wie eine geöffnete Ablage), erreichbar aus dem Reiter „Projekte“ und von Seite 4:

@@ -3,6 +3,7 @@ import type { Item, StepSeries } from '../data/types'
 import {
   dueInstances,
   instanceId,
+  instanceSkips,
   instanceTitle,
   isSeriesFinished,
   nextOccurrence,
@@ -437,5 +438,27 @@ describe('isSeriesFinished', () => {
     expect(isSeriesFinished(series({ endDate: null, count: 3, lastNumber: 2 }))).toBe(false)
     const paused = series({ state: 'pausiert', endDate: null, count: 3, lastNumber: 3 })
     expect(isSeriesFinished(paused)).toBe(false)
+  })
+})
+
+describe('instanceSkips', () => {
+  // Stichtage Mo: Nr 1 = 19.10., Nr 2 = 26.10.; Ausfälle 02.11. und 09.11. ⇒ Nr 3 = 16.11.
+  const s = series({ skippedDates: ['2026-11-02', '2026-11-09', '2026-12-07'] })
+
+  it('Ausfälle zwischen Blatt n und n+1 gehören zu n, andere nicht', () => {
+    expect(instanceSkips(s, 2)).toEqual(['2026-11-02', '2026-11-09'])
+    expect(instanceSkips(s, 1)).toEqual([])
+    expect(instanceSkips(s, 3)).toEqual([])
+    expect(instanceSkips(s, 4)).toEqual([])
+    expect(instanceSkips(s, 5)).toEqual(['2026-12-07'])
+  })
+
+  it('ohne Blatt n+1 zählen alle Ausfälle nach dem Stichtag', () => {
+    const last = series({ count: 2, skippedDates: ['2026-11-02', '2026-11-09'] })
+    expect(instanceSkips(last, 2)).toEqual(['2026-11-02', '2026-11-09'])
+  })
+
+  it('ungültige Nummer: keine Ausfälle', () => {
+    expect(instanceSkips(s, 0)).toEqual([])
   })
 })

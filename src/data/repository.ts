@@ -3,6 +3,7 @@ import { berlinDate, projectSteps } from '../lib/gtd'
 import {
   addDays,
   instanceDate,
+  instanceSkips,
   nextSkipDate,
   pausedOccurrences,
   recomputeOpenInstances,
@@ -1044,14 +1045,10 @@ export interface SkipResult {
   removed: Item[]
 }
 
-/**
- * „Fällt aus“ an einer offenen Serien-Instanz (SPEC §3.12): der nächste noch nicht ausgefallene Stichtag
- * kommt in `skippedDates`, `dueDate` rückt um `every` Wochen, folgende offene Instanzen rücken nach.
- */
-export async function skipSeriesInstance(
+/** Offene Serien-Instanz samt Projekt und laufender Serie; sonst verständlicher Fehler. */
+async function loadOpenInstance(
   itemId: string,
-  today: string = berlinDate(new Date()),
-): Promise<SkipResult> {
+): Promise<{ item: Item; date: string; project: Project; series: StepSeries }> {
   const item = parseItem((await getFile(itemPath(itemId)))?.data, itemId)
   const date = instanceDate(item.id)
   if (
@@ -1065,6 +1062,18 @@ export async function skipSeriesInstance(
   const project = parseProject((await getFile(projectPath(item.projectId)))?.data, item.projectId)
   const series = findSeries(project, item.seriesId)
   if (series.state === 'beendet') throw new Error('Die Serie ist beendet.')
+  return { item, date, project, series }
+}
+
+/**
+ * „Fällt aus“ an einer offenen Serien-Instanz (SPEC §3.12): der nächste noch nicht ausgefallene Stichtag
+ * kommt in `skippedDates`, `dueDate` rückt um `every` Wochen, folgende offene Instanzen rücken nach.
+ */
+export async function skipSeriesInstance(
+  itemId: string,
+  today: string = berlinDate(new Date()),
+): Promise<SkipResult> {
+  const { item, date, project, series } = await loadOpenInstance(itemId)
   const skipped: StepSeries = {
     ...series,
     skippedDates: withSkippedDate(series.skippedDates, nextSkipDate(series, date)),
@@ -1083,6 +1092,52 @@ export async function skipSeriesInstance(
     ...project,
     series: project.series.map((s) =>
       isStepSeries(s) && s.id === series.id ? withPlanProgress(skipped, plan) : s,
+    ),
+    updatedAt: now,
+    v: FORMAT_V,
+  }
+  await commitLocal([
+    ...(await recomputeWrites(plan)),
+    {
+      path: itemPath(item.id),
+      op: 'put',
+      data: { ...(await withRaw(item, moved, ['dueDate'])), v: FORMAT_V },
+    },
+    { path: projectPath(project.id), op: 'put', data: updated },
+  ])
+  notifyChange()
+  return { item: moved, weeks: series.every, removed: plan.deleted }
+}
+
+/**
+ * Nimmt den letzten Ausfall einer offenen Serien-Instanz zurück (SPEC §3.12): er verlässt `skippedDates`,
+ * `dueDate` rückt um `every` Wochen zurück (nur wenn gesetzt), folgende offene Instanzen rücken nach.
+ */
+export async function unskipSeriesInstance(
+  itemId: string,
+  today: string = berlinDate(new Date()),
+): Promise<SkipResult> {
+  const { item, project, series } = await loadOpenInstance(itemId)
+  const last = instanceSkips(series, item.seriesNumber ?? 0).at(-1)
+  if (last === undefined) throw new Error('Dieses Blatt hat keinen Ausfall.')
+  const restored: StepSeries = {
+    ...series,
+    skippedDates: withoutSkippedDate(series.skippedDates, last),
+  }
+  const plan = recomputeOpenInstances(project.id, restored, await listItems(), today, {
+    refreshDue: false,
+    exceptId: item.id,
+  })
+  const now = nowIso()
+  const moved: Item = {
+    ...item,
+    ...(item.dueDate ? { dueDate: addDays(item.dueDate, -7 * series.every) } : {}),
+    updatedAt: now,
+  }
+  const updated: Project = {
+    ...project,
+    series: project.series.map((s) =>
+      isStepSeries(s) && s.id === series.id ? withPlanProgress(restored, plan) : s,
     ),
     updatedAt: now,
     v: FORMAT_V,

@@ -242,7 +242,12 @@ export function ItemEditor({ item, categories, onClose }: ItemEditorProps) {
             hideDuration={schedule !== null}
           />
         )}
-        {type === 'aufgabe' && <SkipSeriesButton item={item} />}
+        {type === 'aufgabe' && (
+          <SkipSeriesButton
+            item={item}
+            onDueDateChange={(dueDate) => patchGtd({ dueDate: dueDate ?? '' })}
+          />
+        )}
         {schedule && seriesCheck !== 'plain' ? (
           <fieldset className={styles.slot}>
             <legend>Termin</legend>

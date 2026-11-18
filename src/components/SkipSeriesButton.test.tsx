@@ -10,6 +10,7 @@ import {
   deleteSeries,
   listItems,
   listProjects,
+  skipSeriesInstance,
 } from '../data/repository'
 import { createDueSeriesInstances } from '../data/seriesInstances'
 import { validSeries } from '../data/types'
@@ -94,6 +95,79 @@ describe('Knopf „Fällt aus“ im ItemEditor', () => {
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /Fällt aus/ })).not.toBeInTheDocument(),
     )
+  })
+})
+
+describe('Fällt aus, Rückgängig und Ausfall zurücknehmen im ItemEditor', () => {
+  const dueField = (): HTMLElement => screen.getByLabelText('Fällig bis')
+
+  it('Fällt aus, dann Speichern: dueDate bleibt verschoben, Feld zeigt das neue Datum', async () => {
+    const user = userEvent.setup()
+    const { items } = await createSeriesItems()
+    render(<ItemEditor item={items[1]} categories={categories} onClose={vi.fn()} />)
+    expect(dueField()).toHaveValue('2026-11-13')
+    await user.click(await screen.findByRole('button', { name: 'Fällt aus – 1 Woche später' }))
+    await screen.findByRole('status')
+    expect(dueField()).toHaveValue('2026-11-20')
+    await user.click(screen.getByRole('button', { name: 'Speichern' }))
+    await waitFor(async () => expect((await listItems())[1].dueDate).toBe('2026-11-20'))
+  })
+
+  it('Rückgängig nimmt genau diesen Ausfall zurück', async () => {
+    const user = userEvent.setup()
+    const { items } = await createSeriesItems()
+    render(<ItemEditor item={items[1]} categories={categories} onClose={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: 'Fällt aus – 1 Woche später' }))
+    await user.click(await screen.findByRole('button', { name: 'Rückgängig' }))
+    await waitFor(() => expect(dueField()).toHaveValue('2026-11-13'))
+    expect(validSeries((await listProjects())[0])[0].skippedDates).toEqual([])
+    expect((await listItems())[1].dueDate).toBe('2026-11-13')
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Ausfall zurückgenommen – folgende Blätter wieder eine Woche früher',
+    )
+  })
+
+  it('Blatt mit Ausfall: Knopf mit Tag, Klick wirkt wie Rückgängig', async () => {
+    const user = userEvent.setup()
+    const { items } = await createSeriesItems()
+    await skipSeriesInstance(items[1].id)
+    render(<ItemEditor item={(await listItems())[1]} categories={categories} onClose={vi.fn()} />)
+    await user.click(
+      await screen.findByRole('button', { name: 'Ausfall zurücknehmen – fällig wieder Fr 13.11.' }),
+    )
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Ausfall zurückgenommen – folgende Blätter wieder eine Woche früher',
+    )
+    expect(dueField()).toHaveValue('2026-11-13')
+    expect(validSeries((await listProjects())[0])[0].skippedDates).toEqual([])
+    expect(screen.queryByRole('button', { name: /Ausfall zurücknehmen/ })).not.toBeInTheDocument()
+  })
+
+  it('bei every 2 meldet die Rücknahme zwei Wochen früher', async () => {
+    const user = userEvent.setup()
+    const { items } = await createSeriesItems(2)
+    await skipSeriesInstance(items[0].id)
+    render(<ItemEditor item={(await listItems())[0]} categories={categories} onClose={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: /Ausfall zurücknehmen/ }))
+    expect(await screen.findByRole('status')).toHaveTextContent('zwei Wochen früher')
+  })
+
+  it('ohne Ausfall kein Knopf „Ausfall zurücknehmen“', async () => {
+    const { items } = await createSeriesItems()
+    render(<ItemEditor item={items[1]} categories={categories} onClose={vi.fn()} />)
+    await screen.findByRole('button', { name: 'Fällt aus – 1 Woche später' })
+    expect(screen.queryByRole('button', { name: /Ausfall zurücknehmen/ })).not.toBeInTheDocument()
+  })
+
+  it('Serie ohne dueWeekday: Knopftext ohne Datum', async () => {
+    const user = userEvent.setup()
+    const project = await createProject({ title: 'Analysis 1', categoryId: 'privat' })
+    await addSeries(project.id, { ...FIELDS, dueWeekday: null as never })
+    await createDueSeriesInstances()
+    await skipSeriesInstance((await listItems())[1].id)
+    render(<ItemEditor item={(await listItems())[1]} categories={categories} onClose={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: 'Ausfall zurücknehmen' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Ausfall zurückgenommen')
   })
 })
 

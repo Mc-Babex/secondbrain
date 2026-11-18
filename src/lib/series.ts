@@ -125,6 +125,17 @@ export function nextSkipDate(series: StepSeries, date: string): string {
   return candidate
 }
 
+/**
+ * Ausfälle der Instanz Nr `number` (SPEC §3.12): Tage aus `skippedDates` nach ihrem Stichtag und vor dem
+ * Stichtag von Nr `number + 1` (gibt es keinen, alle danach); aufsteigend sortiert.
+ */
+export function instanceSkips(series: StepSeries, number: number): string[] {
+  const from = nthOccurrence(series, number)
+  if (from === null) return []
+  const to = nthOccurrence(series, number + 1)
+  return series.skippedDates.filter((d) => d > from && (to === null || d < to)).sort()
+}
+
 /** Stichtage von `lastDate` (exklusiv) bis `yesterday`, die beim Fortsetzen als Ausfall eingetragen werden. */
 export function pausedOccurrences(series: StepSeries, yesterday: string): string[] {
   return walk(series, series.lastDate, yesterday, Infinity)
