@@ -13,7 +13,7 @@ Legende: ⬜ offen · 🟨 in Arbeit · ✅ fertig · ⏸ verschoben
 | 6 | iPhone (Safari, Home-Bildschirm) | ✅ |
 | 7 | Fehler, Feinschliff, vollwertiger Kalender | ✅ |
 | 8 | Testphase mit weiteren Nutzern | ✅ (Abnahme 88 verschoben) |
-| 9 | Aufgabenseite nach GTD | 🟨 |
+| 9 | Aufgabenseite nach GTD | ✅ (0.9.0) |
 
 ## Phase 8 – Testphase mit weiteren Nutzern
 Aufgaben ab 76 liegen in `docs/tasks/`; frühere Aufgaben sind nicht öffentlich.
@@ -50,7 +50,7 @@ Freigegeben 2026-11-16 (bei Format 1 bleiben; Aufgabe mit Datum ohne Planungswor
 | 96 Seite 4: Projekte und Status-Kennzeichen | ✅ |
 | 97 Claude-Lauf: Kalender-Regel, Status, Projekte | ✅ |
 | 98 Testsätze und Trockenlauf | ✅ (Trockenlauf 29/29 · 14/14 · 13/13) |
-| 99 Abnahme und Veröffentlichen | 🟨 (Vorschau-Test durch den Nutzer; Korrekturen 100–106 aus dem Vorschau-Test) |
+| 99 Abnahme und Veröffentlichen | ✅ (0.9.0 am 2026-11-18; Korrekturen 100–106 aus dem Vorschau-Test) |
 | 100 Reiter ohne Anzahl am Handy, Zeitfilter ≤ 15 / alle | ✅ |
 | 101 Serien: Ausfall, Neuberechnung offener Blätter | ✅ (2 Korrekturrunden) |
 | 102 Projekte mit Serie: keine Warnung, Fortschritt | ✅ |

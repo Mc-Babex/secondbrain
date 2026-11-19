@@ -230,7 +230,7 @@ describe('Abschnitt Info', () => {
     expect(
       within(info).getByText(`${__APP_VERSION__} · Build ${__BUILD_STAMP__}`),
     ).toBeInTheDocument()
-    expect(__APP_VERSION__).toBe('0.8.1')
+    expect(__APP_VERSION__).toBe('0.9.0')
   })
 
   it('zeigt die Google-Zeile mit Konto, ohne Verbindung und ohne Client-ID', () => {
